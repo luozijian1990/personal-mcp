@@ -1,0 +1,44 @@
+{
+  "name": "personal-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build:ui && npm run build:server",
+    "build:server": "tsc -p tsconfig.json",
+    "build:ui": "vite build",
+    "check": "npm run build && npm run test",
+    "predev": "npm run build:ui",
+    "dev": "tsx src/apps/gateway.ts",
+    "dev:ssh": "tsx src/apps/ssh-standalone.ts",
+    "start": "node dist/apps/gateway.js",
+    "start:ssh": "node dist/apps/ssh-standalone.js",
+    "test": "node --test dist/core/*.test.js dist/plugins/*/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/express": "2.0.0",
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "@primer/octicons-react": "19.33.0",
+    "@primer/react": "38.37.0",
+    "express": "5.2.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-is": "19.2.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "26.4.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/react-is": "19.2.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vite": "8.2.2"
+  }
+}
