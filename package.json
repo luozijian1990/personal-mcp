@@ -14,8 +14,10 @@
     "predev": "npm run build:ui",
     "dev": "tsx src/apps/gateway.ts",
     "dev:ssh": "tsx src/apps/ssh-standalone.ts",
+    "dev:prometheus": "tsx src/apps/prometheus-standalone.ts",
     "start": "node dist/apps/gateway.js",
     "start:ssh": "node dist/apps/ssh-standalone.js",
+    "start:prometheus": "node dist/apps/prometheus-standalone.js",
     "test": "node --test dist/core/*.test.js dist/plugins/*/*.test.js"
   },
   "dependencies": {
@@ -28,6 +30,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-is": "19.2.0",
+    "ssh2": "^1.17.0",
     "zod": "4.5.4"
   },
   "devDependencies": {

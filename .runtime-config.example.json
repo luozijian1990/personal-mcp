@@ -1,0 +1,10 @@
+{
+  "SSH_MCP_ALLOWED_TARGETS": "server.example.com",
+  "SSH_MCP_USERNAME": "ssh-user",
+  "SSH_MCP_PORTS": "22,2222",
+  "SSH_MCP_ALLOW_COMMANDS": "false",
+  "SSH_MCP_PRIVATE_KEY_PATH": "~/.ssh/agent_ops_key",
+  "SSH_MCP_KNOWN_HOSTS_PATH": "~/.ssh/known_hosts",
+  "PROMETHEUS_MCP_URL": "http://127.0.0.1:9090",
+  "PROMETHEUS_MCP_QUERY_TIMEOUT": "30"
+}

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeftIcon,
+  AlertIcon,
   CheckCircleIcon,
   ChevronRightIcon,
   CodeSquareIcon,
   CopyIcon,
   HomeIcon,
+  GearIcon,
   KeyIcon,
   ListUnorderedIcon,
   PackageIcon,
@@ -18,12 +20,15 @@ import {
 import {
   Button,
   Flash,
+  FormControl,
   Heading,
   IconButton,
   Label,
   Spinner,
   Text,
+  TextInput,
   Tooltip,
+  ToggleSwitch,
 } from "@primer/react";
 
 interface ToolStatus {
@@ -45,6 +50,27 @@ interface PluginStatus {
   readonly category: CategoryStatus;
   readonly path: string;
   readonly tools: readonly ToolStatus[];
+  readonly configurable: boolean;
+}
+
+type PluginConfigValue = string | boolean;
+
+interface PluginConfigField {
+  readonly key: string;
+  readonly label: string;
+  readonly description: string;
+  readonly type: "text" | "boolean";
+  readonly defaultValue: PluginConfigValue;
+  readonly required?: boolean;
+  readonly dangerous?: boolean;
+}
+
+interface PluginConfigSnapshot {
+  readonly pluginId: string;
+  readonly fields: readonly PluginConfigField[];
+  readonly values: Readonly<Record<string, PluginConfigValue>>;
+  readonly revision: number;
+  readonly updatedAt: string | null;
 }
 
 interface ServiceStatus {
@@ -171,19 +197,21 @@ function Topbar({ state, route, refresh }: {
   const title = route.page === "home" ? "首页" : route.page === "catalog" ? "MCP 明细" : "MCP 接入";
   return (
     <header className="topbar">
-      <div>
-        <Text as="p" className="product-name">{title}</Text>
-        <Text as="p" className="product-context">Personal MCP Console</Text>
-      </div>
-      <div className="topbar-actions">
-        {state.kind === "ready" && (
-          <Text as="span" className="checked-time">
-            {state.checkedAt.toLocaleTimeString("zh-CN", { hour12: false })} 检查
-          </Text>
-        )}
-        <Tooltip text="刷新服务状态">
-          <IconButton aria-label="刷新服务状态" icon={SyncIcon} variant="invisible" onClick={() => void refresh()} />
-        </Tooltip>
+      <div className="topbar-inner">
+        <div>
+          <Text as="p" className="product-name">{title}</Text>
+          <Text as="p" className="product-context">Personal MCP Console</Text>
+        </div>
+        <div className="topbar-actions">
+          {state.kind === "ready" && (
+            <Text as="span" className="checked-time">
+              {state.checkedAt.toLocaleTimeString("zh-CN", { hour12: false })} 检查
+            </Text>
+          )}
+          <Tooltip text="刷新服务状态">
+            <IconButton aria-label="刷新服务状态" icon={SyncIcon} variant="invisible" onClick={() => void refresh()} />
+          </Tooltip>
+        </div>
       </div>
     </header>
   );
@@ -215,7 +243,7 @@ function HomePage({ data, navigate }: {
       <section className="page-heading">
         <div className="live-status"><CheckCircleIcon size={16} /> 主服务运行中</div>
         <Heading as="h1">MCP 分类</Heading>
-        <Text as="p">按能力领域浏览当前主服务已经加载的 MCP。</Text>
+        <Text as="p">从能力领域开始，找到你需要的个人工具，再选择合适的客户端接入。</Text>
       </section>
 
       <section className="category-list" aria-label="MCP 分类">
@@ -237,6 +265,29 @@ function HomePage({ data, navigate }: {
         <ServiceFact icon={ServerIcon} label="传输" value={data.transport} />
         <ServiceFact icon={PlugIcon} label="已加载" value={`${data.endpoints.length} 个 MCP`} />
         <ServiceFact icon={KeyIcon} label="认证" value="暂未启用" warning />
+      </section>
+
+      <section className="home-intro" aria-labelledby="home-intro-title">
+        <div className="home-intro-copy">
+          <Heading as="h2" id="home-intro-title">一个入口，连接你的个人工具</Heading>
+          <Text as="p">
+            平时通过主服务统一接入各个 MCP，客户端只需要使用固定地址。需要单独使用某个 MCP 时，也可以直接连接它。
+          </Text>
+        </div>
+        <div className="home-principles">
+          <article>
+            <PackageIcon size={20} />
+            <div><strong>按领域组织</strong><p>分类只回答“它能做什么”，具体能力留在明细页查看。</p></div>
+          </article>
+          <article>
+            <PlugIcon size={20} />
+            <div><strong>统一接入</strong><p>从详情页复制完整命令，把 MCP 添加到常用客户端。</p></div>
+          </article>
+          <article>
+            <CodeSquareIcon size={20} />
+            <div><strong>保持独立</strong><p>子 MCP 不依赖主服务，也可以使用自己的端口单独启动。</p></div>
+          </article>
+        </div>
       </section>
     </div>
   );
@@ -370,8 +421,158 @@ function PluginDetail({ plugin, data, copied, copy, navigate }: {
           ))}
         </div>
       </section>
+
+      {plugin.configurable && <PluginConfigPanel pluginId={plugin.id} />}
     </div>
   );
+}
+
+function PluginConfigPanel({ pluginId }: { readonly pluginId: string }) {
+  const [config, setConfig] = useState<PluginConfigSnapshot | null>(null);
+  const [values, setValues] = useState<Record<string, PluginConfigValue>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<
+    { readonly kind: "success" | "error"; readonly message: string } | null
+  >(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setFeedback(null);
+    void fetch(`/api/config/${encodeURIComponent(pluginId)}`, {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok) throw new Error(await readApiError(response));
+      const body = await response.json() as { config: PluginConfigSnapshot };
+      setConfig(body.config);
+      setValues({ ...body.config.values });
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted) return;
+      setFeedback({ kind: "error", message: errorMessage(error) });
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
+  }, [pluginId]);
+
+  const saveAndReload = async () => {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const response = await fetch(`/api/config/${encodeURIComponent(pluginId)}`, {
+        method: "PUT",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify({ values }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      const body = await response.json() as { config: PluginConfigSnapshot };
+      setConfig(body.config);
+      setValues({ ...body.config.values });
+      setFeedback({ kind: "success", message: "配置已保存，MCP 已重新加载。" });
+    } catch (error) {
+      setFeedback({ kind: "error", message: errorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="config-section" aria-labelledby={`${pluginId}-config-title`}>
+      <div className="config-heading">
+        <div>
+          <div className="section-title-line">
+            <GearIcon size={18} />
+            <Heading as="h2" id={`${pluginId}-config-title`}>运行配置</Heading>
+          </div>
+          {config?.updatedAt !== null && config?.updatedAt !== undefined && (
+            <Text as="p" className="config-revision">
+              版本 {config.revision} · {formatUpdatedAt(config.updatedAt)}
+            </Text>
+          )}
+        </div>
+      </div>
+
+      {loading && <div className="config-loading"><Spinner size="small" /><span>正在读取配置</span></div>}
+      {!loading && config !== null && (
+        <form onSubmit={(event) => { event.preventDefault(); void saveAndReload(); }}>
+          <div className="config-fields">
+            {config.fields.map((field) => field.type === "boolean" ? (
+              <div className="config-toggle-row" key={field.key}>
+                <div id={`${pluginId}-${field.key}-label`} className="config-field-copy">
+                  <div className="config-field-label">
+                    <strong>{field.label}</strong>
+                    {field.dangerous && <Label variant="attention">高风险</Label>}
+                  </div>
+                  <code>{field.key}</code>
+                  <Text as="p">{field.description}</Text>
+                </div>
+                <ToggleSwitch
+                  aria-labelledby={`${pluginId}-${field.key}-label`}
+                  checked={values[field.key] === true}
+                  disabled={saving}
+                  onChange={(checked) => setValues((current) => ({ ...current, [field.key]: checked }))}
+                  buttonLabelOn="已启用"
+                  buttonLabelOff="已停用"
+                />
+              </div>
+            ) : (
+              <FormControl
+                className="config-text-field"
+                id={`${pluginId}-${field.key}`}
+                key={field.key}
+                required={field.required}
+              >
+                <FormControl.Label>
+                  <span className="config-field-label"><strong>{field.label}</strong><code>{field.key}</code></span>
+                </FormControl.Label>
+                <TextInput
+                  block
+                  disabled={saving}
+                  value={typeof values[field.key] === "string" ? values[field.key] : ""}
+                  onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                />
+                <FormControl.Caption>{field.description}</FormControl.Caption>
+              </FormControl>
+            ))}
+          </div>
+
+          {feedback !== null && (
+            <Flash className="config-feedback" variant={feedback.kind === "success" ? "success" : "danger"}>
+              {feedback.kind === "error" && <AlertIcon size={16} />} {feedback.message}
+            </Flash>
+          )}
+
+          <div className="config-actions">
+            <Button type="submit" variant="primary" leadingVisual={SyncIcon} disabled={saving}>
+              {saving ? "正在保存" : "保存并重载 MCP"}
+            </Button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
+
+async function readApiError(response: Response): Promise<string> {
+  try {
+    const body = await response.json() as { error?: unknown };
+    if (typeof body.error === "string") return body.error;
+  } catch {
+    // Fall through to the HTTP status when the response is not JSON.
+  }
+  return `HTTP ${response.status}`;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "未知错误";
+}
+
+function formatUpdatedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function ServiceFact({ icon: Icon, label, value, warning = false }: {

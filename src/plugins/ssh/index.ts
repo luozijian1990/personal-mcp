@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 
 import type { PersonalMcpPlugin } from "../../core/plugin.js";
-import type { SshPluginConfig } from "./config.js";
+import { SSH_CONFIG_FIELDS, type SshPluginConfig } from "./config.js";
 import { loadSshPluginConfig } from "./config.js";
 import type { SshExecutor, SshRunResult } from "./ssh-runner.js";
 import { runSsh } from "./ssh-runner.js";
@@ -15,9 +15,9 @@ const targetSchema = z
   .max(255)
   .regex(
     /^[A-Za-z0-9][A-Za-z0-9._:@%+\-]*$/,
-    "Use an SSH config alias or a user@host target without spaces",
+    "Use a hostname or IP address without spaces",
   )
-  .describe("An exact target from SSH_MCP_ALLOWED_TARGETS, preferably an ~/.ssh/config alias");
+  .describe("An exact hostname or IP address from SSH_MCP_ALLOWED_TARGETS");
 
 const timeoutSchema = z
   .number()
@@ -37,6 +37,9 @@ const maxOutputSchema = z
 
 const resultSchema = z.object({
   target: z.string(),
+  username: z.string(),
+  port: z.number().int().nullable(),
+  attemptedPorts: z.array(z.number().int()),
   command: z.string(),
   exitCode: z.number().int(),
   signal: z.string().nullable(),
@@ -55,12 +58,12 @@ export function createSshPlugin(
   options: CreateSshPluginOptions = {},
 ): PersonalMcpPlugin {
   const config = options.config ?? loadSshPluginConfig();
-  const executor = options.executor ?? runSsh;
+  const executor = options.executor ?? ((request) => runSsh(request, config));
 
   return {
     id: "ssh",
     displayName: "SSH Remote Operations",
-    summary: "通过本机 SSH 配置连接白名单主机，执行系统快照与受控命令。",
+    summary: "使用配置的用户名、端口和密钥连接白名单主机，执行系统快照与受控命令。",
     category: {
       id: "remote-operations",
       name: "远程运维",
@@ -78,6 +81,7 @@ export function createSshPlugin(
         risk: "write-capable",
       },
     ],
+    config: { fields: SSH_CONFIG_FIELDS },
     createServer: () => createSshServer(config, executor),
   };
 }
@@ -90,7 +94,7 @@ function createSshServer(config: SshPluginConfig, executor: SshExecutor): McpSer
     {
       title: "Get SSH system snapshot",
       description:
-        "Connect to one allowlisted SSH target and run a fixed read-only identity, time, kernel, uptime, and disk-space snapshot. It never disables host-key checking and never prompts for a password.",
+        "Connect to one allowlisted host using the configured SSH username and ports, trying ports in order, then run a fixed read-only identity, time, kernel, uptime, and disk-space snapshot. It uses the configured private key, never disables host-key checking, and never prompts for a password.",
       inputSchema: z.object({
         target: targetSchema,
         timeoutSeconds: timeoutSchema,
@@ -123,7 +127,7 @@ function createSshServer(config: SshPluginConfig, executor: SshExecutor): McpSer
     {
       title: "Execute an SSH command",
       description:
-        "Execute one command on one allowlisted SSH target. The command may change or destroy remote state. Call only after the user has explicitly authorized the exact target and command. The server must also be started with SSH_MCP_ALLOW_COMMANDS=true.",
+        "Execute one command on one allowlisted host using the configured SSH username and ports. Ports are tried in order only until an SSH connection succeeds; the command is never retried on another port. The command may change or destroy remote state. Call only after the user has explicitly authorized the exact target and command. The server must also be configured with SSH_MCP_ALLOW_COMMANDS=true.",
       inputSchema: z.object({
         target: targetSchema,
         command: z
@@ -170,7 +174,7 @@ function createSshServer(config: SshPluginConfig, executor: SshExecutor): McpSer
 
 function validateTarget(config: SshPluginConfig, target: string): string | undefined {
   if (config.allowedTargets.size === 0) {
-    return "No SSH targets are configured. Set SSH_MCP_ALLOWED_TARGETS to a comma-separated allowlist of SSH aliases or user@host targets.";
+    return "No SSH targets are configured. Set SSH_MCP_ALLOWED_TARGETS to a comma-separated allowlist of hostnames or IP addresses.";
   }
   if (!config.allowedTargets.has(target)) {
     return `SSH target is not allowlisted: ${target}`;

@@ -5,3 +5,8 @@ dist-ui/
 *.log
 output/
 .playwright-cli/
+.runtime-config.json
+.runtime-config.json.*.tmp
+# Local SSH identity files are machine-specific and must not be committed.
+keys/agent_ops_key
+keys/agent_ops_key.pub
