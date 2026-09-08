@@ -18,6 +18,8 @@
     "start": "node dist/apps/gateway.js",
     "start:ssh": "node dist/apps/ssh-standalone.js",
     "start:prometheus": "node dist/apps/prometheus-standalone.js",
+    "dev:mysql": "tsx src/apps/mysql-standalone.ts",
+    "start:mysql": "node dist/apps/mysql-standalone.js",
     "test": "node --test dist/core/*.test.js dist/plugins/*/*.test.js"
   },
   "dependencies": {
@@ -27,6 +29,7 @@
     "@primer/octicons-react": "19.33.0",
     "@primer/react": "38.37.0",
     "express": "5.2.1",
+    "mysql2": "^3.14.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-is": "19.2.0",

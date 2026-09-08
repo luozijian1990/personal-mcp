@@ -1,0 +1,10 @@
+import type { McpConfigManager, PluginConfigSnapshot, PluginConfigUpdate, PluginConfigValue } from "../../core/plugin.js";
+import type { RuntimeConfigStore } from "../../core/runtime-config.js";
+import { createMysqlPlugin } from "./index.js";
+import { loadMysqlPluginConfig, MYSQL_CONFIG_FIELDS, validateMysqlConfig } from "./config.js";
+
+export function createMysqlConfigManager(store: RuntimeConfigStore): McpConfigManager {
+  let revision = 0; let updatedAt: string | null = null;
+  const snapshot = (): PluginConfigSnapshot => { const c = loadMysqlPluginConfig(store.environment()); return { pluginId: "mysql", fields: MYSQL_CONFIG_FIELDS, values: { MYSQL_HOST: c.host, MYSQL_PORT: String(c.port), MYSQL_USER: c.user, MYSQL_PASSWORD: "", MYSQL_DATABASE: c.database }, revision, updatedAt }; };
+  return { pluginId: "mysql", getSnapshot: snapshot, update: async (input: unknown): Promise<PluginConfigUpdate> => { const values = (input as { values?: Record<string, PluginConfigValue> }).values ?? input as Record<string, PluginConfigValue>; const current = store.environment(); const password = String(values.MYSQL_PASSWORD ?? ""); const persisted = Object.fromEntries(MYSQL_CONFIG_FIELDS.map((f) => [f.key, f.key === "MYSQL_PASSWORD" && password.length === 0 ? (current.MYSQL_PASSWORD ?? "") : String(values[f.key] ?? "")])) as Record<string, string>; const config = loadMysqlPluginConfig({ ...current, ...persisted }); validateMysqlConfig(config); const before = snapshot(); await store.update(persisted); revision++; updatedAt = new Date().toISOString(); const after = snapshot(); return { plugin: createMysqlPlugin({ config }), snapshot: after, changedKeys: MYSQL_CONFIG_FIELDS.map((f) => f.key).filter((k) => before.values[k] !== after.values[k]) }; }, reload: async () => { const config = loadMysqlPluginConfig(store.environment()); validateMysqlConfig(config); revision++; updatedAt = new Date().toISOString(); return { plugin: createMysqlPlugin({ config }), snapshot: snapshot(), changedKeys: [] }; } };
+}
