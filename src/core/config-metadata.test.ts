@@ -7,6 +7,7 @@ import type { PersonalMcpToolMetadata, PluginConfigField } from "./plugin.js";
 import {
   configControlKind,
   groupConfigFields,
+  toggleSecretClearIntent,
   toolRiskPresentation,
 } from "../ui/config-metadata.js";
 import { ConfigFieldEditor, ToolMetadataRow } from "../ui/MetadataControls.js";
@@ -113,6 +114,20 @@ test("Console shows configured Secret retention and an explicit clear action", (
   assert.match(clearing, /保存后将清除/);
   assert.match(clearing, /取消清除/);
   assert.match(clearing, /disabled=""/);
+});
+
+test("Console discards a replacement draft when explicit Secret clearing is selected", () => {
+  const clearing = toggleSecretClearIntent(
+    { HOST: "db.internal", PASSWORD: "replacement-draft" },
+    new Set(),
+    "PASSWORD",
+  );
+  assert.deepEqual(clearing.values, { HOST: "db.internal", PASSWORD: "" });
+  assert.deepEqual([...clearing.clearSecrets], ["PASSWORD"]);
+
+  const cancelled = toggleSecretClearIntent(clearing.values, clearing.clearSecrets, "PASSWORD");
+  assert.deepEqual(cancelled.values, { HOST: "db.internal", PASSWORD: "" });
+  assert.deepEqual([...cancelled.clearSecrets], []);
 });
 
 test("Console renders all tool risks and operational safety hints", () => {

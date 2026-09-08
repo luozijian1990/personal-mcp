@@ -266,11 +266,29 @@ test("configuration status, errors, and logs never expose Secret values", async 
     label: "Token",
     description: "Secret token",
     type: "password",
-    defaultValue: "",
+    defaultValue: "metadata-secret",
     secret: true,
   }];
   const serverSource = createSshPlugin({
-    config: { allowedTargets: new Set(), allowCommands: false, ports: [] },
+    config: {
+      allowedTargets: new Set(["old-secret"]),
+      allowCommands: false,
+      username: "reader",
+      ports: [22],
+    },
+    executor: async (request) => ({
+      target: request.target,
+      username: "reader",
+      port: 22,
+      attemptedPorts: [22],
+      command: request.command,
+      exitCode: 0,
+      signal: null,
+      durationMs: 1,
+      stdout: "old-secret\n",
+      stderr: "",
+      outputTruncated: false,
+    }),
   });
   const plugin: PersonalMcpPlugin = {
     id: "secret-test",
@@ -318,8 +336,29 @@ test("configuration status, errors, and logs never expose Secret values", async 
 
   const statusResponse = await fetch(new URL("/api/status", url));
   const statusText = await statusResponse.text();
-  assert.doesNotMatch(statusText, /old-secret/);
+  assert.doesNotMatch(statusText, /old-secret|metadata-secret/);
   assert.match(statusText, /"TOKEN":\{"configured":true\}/);
+  const status = JSON.parse(statusText) as { configs: PluginConfigSnapshot[] };
+  assert.equal(status.configs[0]?.fields[0]?.defaultValue, "");
+
+  const toolResponse = await fetch(new URL("/secret-test/mcp", url), {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "ssh_get_system_snapshot",
+        arguments: { target: "old-secret" },
+      },
+    }),
+  });
+  assert.equal(toolResponse.status, 200);
+  assert.match(await toolResponse.text(), /old-secret/);
 
   const updateResponse = await fetch(new URL("/api/config/secret-test", url), {
     method: "PUT",

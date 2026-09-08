@@ -128,7 +128,10 @@ test("generic config lifecycle removes Secret values from validation errors", as
     store: { environment: () => ({ TOKEN: "old-secret" }), update: async () => undefined },
     load: (env) => ({ token: env.TOKEN ?? "" }),
     values: (config) => ({ TOKEN: config.token }),
-    parse: (input, current) => ({ ...current, ...(input as { values: Record<string, PluginConfigValue> }).values }),
+    parse: (input, current) => {
+      const values = (input as { values: Record<string, PluginConfigValue> }).values;
+      return { ...current, ...values, TOKEN: String(values.TOKEN).trim() };
+    },
     environment: (values, base) => ({ ...base, TOKEN: String(values.TOKEN ?? "") }),
     persist: (values) => ({ TOKEN: String(values.TOKEN ?? "") }),
     validate: (config) => { throw new Error(`Rejected credential ${config.token}; previous old-secret`); },
@@ -136,12 +139,95 @@ test("generic config lifecycle removes Secret values from validation errors", as
   });
 
   await assert.rejects(
-    manager.update({ values: { TOKEN: "new-secret" } }),
+    manager.update({ values: { TOKEN: "  normalized-secret  " } }),
     (error: Error) => {
       assert.equal(error.message, "Rejected credential [REDACTED]; previous [REDACTED]");
-      assert.doesNotMatch(error.message, /old-secret|new-secret/);
+      assert.doesNotMatch(error.message, /old-secret|normalized-secret/);
       return true;
     },
   );
   assert.deepEqual(manager.getSnapshot().secretStates, { TOKEN: { configured: true } });
+});
+
+test("generic Secret retention is applied before plugin parsing", async () => {
+  const secretFields: readonly PluginConfigField[] = [
+    { key: "TOKEN", label: "Token", description: "", type: "password", defaultValue: "", secret: true },
+  ];
+  let persistedToken = "old-secret";
+  const manager = createGenericConfigManager({
+    pluginId: "test",
+    fields: secretFields,
+    store: {
+      environment: () => ({ TOKEN: persistedToken }),
+      update: async (values) => { persistedToken = values.TOKEN ?? ""; },
+    },
+    load: (environment) => ({ token: environment.TOKEN ?? "" }),
+    values: (config) => ({ TOKEN: config.token }),
+    parse: (input) => {
+      const token = (input as { values: { TOKEN?: unknown } }).values.TOKEN;
+      if (typeof token !== "string" || token.length === 0) {
+        throw new Error("plugin parser requires a non-empty token");
+      }
+      return { TOKEN: token };
+    },
+    environment: (values, base) => ({ ...base, TOKEN: String(values.TOKEN ?? "") }),
+    persist: (values) => ({ TOKEN: String(values.TOKEN ?? "") }),
+    validate: () => undefined,
+    createPlugin: () => plugin("retained"),
+  });
+
+  await manager.update({ values: { TOKEN: "" } });
+  assert.equal(persistedToken, "old-secret");
+});
+
+test("generic lifecycle hides Secret normalization when plugin parsing fails", async () => {
+  const secretFields: readonly PluginConfigField[] = [
+    { key: "TOKEN", label: "Token", description: "", type: "password", defaultValue: "", secret: true },
+  ];
+  const manager = createGenericConfigManager({
+    pluginId: "test",
+    fields: secretFields,
+    store: { environment: () => ({ TOKEN: "old-secret" }), update: async () => undefined },
+    load: (environment) => ({ token: environment.TOKEN ?? "" }),
+    values: (config) => ({ TOKEN: config.token }),
+    parse: (input) => {
+      const normalized = String((input as { values: { TOKEN: unknown } }).values.TOKEN).trim();
+      throw new Error(`Parser rejected ${normalized}`);
+    },
+    environment: (values, base) => ({ ...base, TOKEN: String(values.TOKEN ?? "") }),
+    persist: (values) => ({ TOKEN: String(values.TOKEN ?? "") }),
+    validate: () => undefined,
+    createPlugin: () => plugin("unused"),
+  });
+
+  await assert.rejects(
+    manager.update({ values: { TOKEN: "  normalized-secret  " } }),
+    (error: Error) => {
+      assert.equal(error.message, "Invalid configuration for test");
+      assert.doesNotMatch(error.message, /normalized-secret/);
+      return true;
+    },
+  );
+});
+
+test("Secret redaction replaces overlapping values longest-first", () => {
+  const secretFields: readonly PluginConfigField[] = [
+    { key: "SHORT", label: "Short", description: "", type: "password", defaultValue: "", secret: true },
+    { key: "LONG", label: "Long", description: "", type: "password", defaultValue: "", secret: true },
+  ];
+  const manager = createGenericConfigManager({
+    pluginId: "test",
+    fields: secretFields,
+    store: { environment: () => ({ SHORT: "secret", LONG: "secret-suffix" }), update: async () => undefined },
+    load: (environment) => ({ short: environment.SHORT ?? "", long: environment.LONG ?? "" }),
+    values: (config) => ({ SHORT: config.short, LONG: config.long }),
+    parse: () => ({}),
+    environment: (_values, base) => base,
+    validate: () => undefined,
+    createPlugin: () => plugin("unused"),
+  });
+
+  assert.deepEqual(manager.redactSecrets?.({ value: "secret-suffix secret" }), {
+    value: "[REDACTED] [REDACTED]",
+  });
 });

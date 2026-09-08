@@ -47,6 +47,17 @@ export function createHttpApp(options: HttpAppOptions): Express {
 
   const app = createMcpExpressApp({ host: options.host });
   const logger = options.logger ?? createLogger({ serviceName: options.serviceName });
+  const redactLogValue = (value: unknown): unknown => {
+    let redacted = value;
+    for (const manager of configManagers.values()) {
+      try {
+        redacted = manager.redactSecrets?.(redacted) ?? redacted;
+      } catch {
+        return "[REDACTED]";
+      }
+    }
+    return redacted;
+  };
 
   app.get("/api/status", (_request, response) => {
     response.json({
@@ -142,7 +153,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
           logger.error("mcp.handler_error", {
             plugin: pluginId,
             endpoint: mount.path,
-            error: error.message,
+            error: redactLogValue(error.message),
           });
         },
       },
@@ -201,7 +212,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
           duration_ms: Math.round(performance.now() - startedAt),
           completed,
           truncated: outputTruncated,
-          output: parseMcpOutput(outputChunks.join("")),
+          output: redactLogValue(parseMcpOutput(outputChunks.join(""))),
         });
       };
 
@@ -214,7 +225,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
         endpoint: mount.path,
         http_method: request.method,
         ...requestMetadata,
-        input: request.body ?? null,
+        input: redactLogValue(request.body ?? null),
       });
 
       void handler(request, response, request.body).catch((error: unknown) => {
@@ -222,7 +233,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
           request_id: requestId,
           plugin: pluginId,
           endpoint: mount.path,
-          error: error instanceof Error ? error.message : String(error),
+          error: redactLogValue(error instanceof Error ? error.message : String(error)),
         });
       });
     });

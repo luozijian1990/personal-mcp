@@ -89,6 +89,8 @@ export interface McpConfigManager {
   getSnapshot(): PluginConfigSnapshot;
   update(input: unknown): Promise<PluginConfigUpdate>;
   reload(): Promise<PluginConfigUpdate>;
+  /** Removes configured Secret values from data before it enters ordinary logs. */
+  redactSecrets?(value: unknown): unknown;
   /** Runtime wires this to atomically replace the mounted instance after persistence succeeds. */
   setRuntimeReplacement?(replace: (plugin: PersonalMcpPlugin) => void): void;
 }
@@ -110,37 +112,74 @@ export interface GenericConfigLifecycleOptions<Config> {
 export function createGenericConfigManager<Config>(
   options: GenericConfigLifecycleOptions<Config>,
 ): McpConfigManager {
+  const secretFields = options.fields.filter((field) => field.secret);
+  const secretKeys = new Set(secretFields.map((field) => field.key));
+  const publicFields = options.fields.map((field) => field.secret
+    ? { ...field, defaultValue: "" }
+    : field);
   let revision = 0;
   let updatedAt: string | null = null;
   let currentPlugin: PersonalMcpPlugin | undefined;
   let replaceRuntime: ((plugin: PersonalMcpPlugin) => void) | undefined;
-  let currentValues: Readonly<Record<string, PluginConfigValue>> | undefined;
+  let currentPrivateValues: Readonly<Record<string, PluginConfigValue>> | undefined;
   let operations = Promise.resolve();
-  const loadCurrentValues = () => currentValues
-    ?? options.values(options.load(options.store.environment()));
+  const loadPrivateValues = (): Readonly<Record<string, PluginConfigValue>> => {
+    if (currentPrivateValues !== undefined) return currentPrivateValues;
+    try {
+      return options.values(options.load(options.store.environment()));
+    } catch (error) {
+      if (secretFields.length > 0) {
+        throw new Error(`Unable to load configuration for ${options.pluginId}`);
+      }
+      throw error;
+    }
+  };
   const snapshot = (): PluginConfigSnapshot => {
-    const values = loadCurrentValues();
+    const privateValues = loadPrivateValues();
     return {
       pluginId: options.pluginId,
-      fields: options.fields,
-      values: publicConfigValues(values, options.fields),
-      secretStates: secretConfigStates(values, options.fields),
+      fields: publicFields,
+      values: publicConfigValues(privateValues, secretKeys),
+      secretStates: secretConfigStates(privateValues, secretFields),
       revision,
       updatedAt,
     };
   };
   const run = async (input?: unknown, reload = false): Promise<PluginConfigUpdate> => {
-    const beforeValues = loadCurrentValues();
+    const beforePrivateValues = loadPrivateValues();
     const base = options.store.environment();
-    const secretCandidates = secretValuesForRedaction(beforeValues, input, options.fields);
+    const secretCandidates = new Set(
+      secretValuesForRedaction(beforePrivateValues, input, secretFields),
+    );
+    const beforeSecretValuesKnown = <T>(operation: () => T): T => {
+      try {
+        return operation();
+      } catch (error) {
+        if (secretFields.length > 0) {
+          throw new Error(`Invalid configuration for ${options.pluginId}`);
+        }
+        throw error;
+      }
+    };
     try {
-      const parsedValues = reload
+      const secretUpdate = reload
+        ? undefined
+        : createSecretUpdatePlan(input, beforePrivateValues, secretKeys);
+      const parsedValues = beforeSecretValuesKnown(() => reload
         ? options.values(options.load(base))
-        : options.parse(input, beforeValues);
+        : options.parse(secretUpdate?.input, beforePrivateValues));
+      addSecretValuesForRedaction(secretCandidates, parsedValues, secretFields);
       const nextValues = reload
         ? parsedValues
-        : applySecretUpdateSemantics(input, parsedValues, beforeValues, options.fields);
-      const config = options.load(options.environment(nextValues, base));
+        : applySecretOverrides(parsedValues, secretUpdate?.overrides);
+      const config = beforeSecretValuesKnown(
+        () => options.load(options.environment(nextValues, base)),
+      );
+      addSecretValuesForRedaction(
+        secretCandidates,
+        beforeSecretValuesKnown(() => options.values(config)),
+        secretFields,
+      );
       await options.validate(config);
       const plugin = options.createPlugin(config);
       if (!reload) {
@@ -151,15 +190,15 @@ export function createGenericConfigManager<Config>(
       }
       replaceRuntime?.(plugin);
       currentPlugin = plugin;
-      currentValues = options.values(config);
+      currentPrivateValues = options.values(config);
       revision += 1;
       updatedAt = new Date().toISOString();
       const after = snapshot();
       return { plugin: currentPlugin, snapshot: after, changedKeys: options.fields
         .map((field) => field.key)
-        .filter((key) => !configValuesEqual(beforeValues[key], currentValues?.[key])) };
+        .filter((key) => !configValuesEqual(beforePrivateValues[key], currentPrivateValues?.[key])) };
     } catch (error) {
-      throw redactSecretError(error, secretCandidates);
+      throw redactSecretError(error, [...secretCandidates]);
     }
   };
   const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -168,47 +207,48 @@ export function createGenericConfigManager<Config>(
     return result;
   };
   return { pluginId: options.pluginId, getSnapshot: snapshot,
+    redactSecrets: (value) => redactSecretData(
+      value,
+      secretValuesForRedaction(loadPrivateValues(), undefined, secretFields),
+    ),
     setRuntimeReplacement: (replace) => { replaceRuntime = replace; },
     update: (input) => enqueue(() => run(input)), reload: () => enqueue(() => run(undefined, true)) };
 }
 
 function publicConfigValues(
   values: Readonly<Record<string, PluginConfigValue>>,
-  fields: readonly PluginConfigField[],
+  secretKeys: ReadonlySet<string>,
 ): Readonly<Record<string, PluginConfigValue>> {
-  const secretKeys = new Set(fields.filter((field) => field.secret).map((field) => field.key));
   return Object.fromEntries(Object.entries(values).filter(([key]) => !secretKeys.has(key)));
 }
 
 function secretConfigStates(
   values: Readonly<Record<string, PluginConfigValue>>,
-  fields: readonly PluginConfigField[],
+  secretFields: readonly PluginConfigField[],
 ): Readonly<Record<string, { readonly configured: boolean }>> {
-  return Object.fromEntries(fields.filter((field) => field.secret).map((field) => {
+  return Object.fromEntries(secretFields.map((field) => {
     const value = values[field.key];
     return [field.key, { configured: typeof value === "string" && value.length > 0 }];
   }));
 }
 
-function applySecretUpdateSemantics(
+interface SecretUpdatePlan {
+  readonly input: unknown;
+  readonly overrides: ReadonlyMap<string, PluginConfigValue | undefined>;
+}
+
+function createSecretUpdatePlan(
   input: unknown,
-  parsed: Record<string, PluginConfigValue>,
   current: Readonly<Record<string, PluginConfigValue>>,
-  fields: readonly PluginConfigField[],
-): Record<string, PluginConfigValue> {
-  const request = isRecord(input) ? input : {};
-  const rawValues = isRecord(request.values) ? request.values : request;
-  const clearSecrets = request.clearSecrets;
-  if (clearSecrets !== undefined && (!Array.isArray(clearSecrets) || clearSecrets.some((key) => typeof key !== "string"))) {
-    throw new Error("clearSecrets must be an array of Secret field keys");
-  }
-  const requestedClears = new Set((clearSecrets ?? []) as string[]);
-  const secretKeys = new Set(fields.filter((field) => field.secret).map((field) => field.key));
-  const unknownClears = [...requestedClears].filter((key) => !secretKeys.has(key));
-  if (unknownClears.length > 0) {
-    throw new Error(`Cannot clear non-Secret configuration field: ${unknownClears.join(", ")}`);
-  }
-  const next = { ...parsed };
+  secretKeys: ReadonlySet<string>,
+): SecretUpdatePlan {
+  if (!isRecord(input)) return { input, overrides: new Map() };
+  const wrapped = isRecord(input.values);
+  const rawValues = wrapped ? input.values as Record<string, unknown> : input;
+  const requestedClears = readRequestedSecretClears(input, secretKeys);
+  const preparedValues: Record<string, unknown> = { ...rawValues };
+  const overrides = new Map<string, PluginConfigValue | undefined>();
+  if (!wrapped) delete preparedValues.clearSecrets;
   for (const key of secretKeys) {
     const supplied = Object.hasOwn(rawValues, key);
     const replacement = rawValues[key];
@@ -216,33 +256,95 @@ function applySecretUpdateSemantics(
       if (supplied && typeof replacement === "string" && replacement.length > 0) {
         throw new Error(`Secret field ${key} cannot be replaced and cleared in the same update`);
       }
-      next[key] = "";
+      overrides.set(key, "");
     } else if (!supplied || replacement === "") {
-      const existing = current[key];
-      if (existing === undefined) delete next[key];
-      else next[key] = existing;
+      overrides.set(key, current[key]);
     }
   }
+  for (const [key, value] of overrides) {
+    if (value === undefined) delete preparedValues[key];
+    else preparedValues[key] = value;
+  }
+  return {
+    input: wrapped ? { ...input, values: preparedValues } : preparedValues,
+    overrides,
+  };
+}
+
+function applySecretOverrides(
+  parsed: Record<string, PluginConfigValue>,
+  overrides: ReadonlyMap<string, PluginConfigValue | undefined> = new Map(),
+): Record<string, PluginConfigValue> {
+  const next = { ...parsed };
+  for (const [key, value] of overrides) {
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+  }
   return next;
+}
+
+function readRequestedSecretClears(
+  request: Readonly<Record<string, unknown>>,
+  secretKeys: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const clearSecrets = request.clearSecrets;
+  if (clearSecrets !== undefined && (!Array.isArray(clearSecrets) || clearSecrets.some((key) => typeof key !== "string"))) {
+    throw new Error("clearSecrets must be an array of Secret field keys");
+  }
+  const requestedClears = new Set((clearSecrets ?? []) as string[]);
+  const unknownClears = [...requestedClears].filter((key) => !secretKeys.has(key));
+  if (unknownClears.length > 0) {
+    throw new Error(`Cannot clear non-Secret configuration field: ${unknownClears.join(", ")}`);
+  }
+  return requestedClears;
 }
 
 function secretValuesForRedaction(
   current: Readonly<Record<string, PluginConfigValue>>,
   input: unknown,
-  fields: readonly PluginConfigField[],
+  secretFields: readonly PluginConfigField[],
 ): readonly string[] {
   const request = isRecord(input) ? input : {};
   const rawValues = isRecord(request.values) ? request.values : request;
-  return [...new Set(fields.filter((field) => field.secret).flatMap((field) => {
+  return [...new Set(secretFields.flatMap((field) => {
     const candidates = [current[field.key], rawValues[field.key]];
     return candidates.filter((value): value is string => typeof value === "string" && value.length > 0);
   }))];
 }
 
+function addSecretValuesForRedaction(
+  candidates: Set<string>,
+  values: Readonly<Record<string, PluginConfigValue>>,
+  secretFields: readonly PluginConfigField[],
+): void {
+  for (const field of secretFields) {
+    const value = values[field.key];
+    if (typeof value === "string" && value.length > 0) candidates.add(value);
+  }
+}
+
+function redactSecretData(value: unknown, secrets: readonly string[]): unknown {
+  if (typeof value === "string") {
+    return redactSecretsInString(value, secrets);
+  }
+  if (Array.isArray(value)) return value.map((item) => redactSecretData(item, secrets));
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, redactSecretData(item, secrets)]),
+  );
+}
+
 function redactSecretError(error: unknown, secrets: readonly string[]): Error {
-  let message = error instanceof Error ? error.message : String(error);
-  for (const secret of secrets) message = message.replaceAll(secret, "[REDACTED]");
-  return new Error(message);
+  return new Error(redactSecretsInString(
+    error instanceof Error ? error.message : String(error),
+    secrets,
+  ));
+}
+
+function redactSecretsInString(value: string, secrets: readonly string[]): string {
+  return [...secrets]
+    .sort((left, right) => right.length - left.length)
+    .reduce((text, secret) => text.replaceAll(secret, "[REDACTED]"), value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

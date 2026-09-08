@@ -32,7 +32,7 @@ import type {
   PluginConfigSnapshot,
   PluginConfigValue,
 } from "../core/plugin.js";
-import { groupConfigFields } from "./config-metadata.js";
+import { groupConfigFields, toggleSecretClearIntent } from "./config-metadata.js";
 import { ConfigFieldEditor, ToolMetadataRow } from "./MetadataControls.js";
 
 type ToolStatus = PersonalMcpToolMetadata;
@@ -495,12 +495,11 @@ function PluginConfigPanel({ pluginId }: { readonly pluginId: string }) {
                     value={values[field.key] ?? field.defaultValue}
                     secretConfigured={config.secretStates?.[field.key]?.configured ?? false}
                     clearRequested={clearSecrets.has(field.key)}
-                    clearSecret={field.secret ? () => setClearSecrets((current) => {
-                      const next = new Set(current);
-                      if (next.has(field.key)) next.delete(field.key);
-                      else next.add(field.key);
-                      return next;
-                    }) : undefined}
+                    clearSecret={field.secret ? () => {
+                      const next = toggleSecretClearIntent(values, clearSecrets, field.key);
+                      setValues(next.values);
+                      setClearSecrets(next.clearSecrets);
+                    } : undefined}
                     update={(value) => {
                       setValues((current) => ({ ...current, [field.key]: value }));
                       if (field.secret && typeof value === "string" && value.length > 0) {
