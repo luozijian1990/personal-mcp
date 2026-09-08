@@ -16,7 +16,7 @@ export const MYSQL_PLUGIN_METADATA: PersonalMcpPluginMetadata = {
 export function createMysqlPlugin(options: { config?: MysqlPluginConfig; executor?: MysqlExecutor } = {}): PersonalMcpPlugin {
   const config = options.config ?? loadMysqlPluginConfig();
   const executor = options.executor ?? executeMysql;
-  return { ...MYSQL_PLUGIN_METADATA, tools: [{ name: "execute_sql", title: "执行 SQL", risk: "write-capable" }], config: { fields: MYSQL_CONFIG_FIELDS }, createServer: () => createMysqlServer(config, executor) };
+  return { ...MYSQL_PLUGIN_METADATA, tools: [{ name: "execute_sql", title: "执行 SQL", risk: "privileged", requiresConfirmation: true }], config: { fields: MYSQL_CONFIG_FIELDS }, createServer: () => createMysqlServer(config, executor) };
 }
 
 function createMysqlServer(config: MysqlPluginConfig, executor: MysqlExecutor): McpServer {

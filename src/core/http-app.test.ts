@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { createHttpApp, parseMcpOutput } from "./http-app.js";
 import { McpRegistry } from "./mcp-registry.js";
-import type { McpConfigManager } from "./plugin.js";
+import type {
+  McpConfigManager,
+  PersonalMcpPlugin,
+  PluginConfigField,
+  PluginConfigSnapshot,
+} from "./plugin.js";
 import { startHttpServer } from "./start-http-server.js";
 import { createSshPlugin } from "../plugins/ssh/index.js";
+import { ConfigFieldEditor, ToolMetadataRow } from "../ui/MetadataControls.js";
 
 test("gateway exposes the SSH plugin over its mounted MCP path", async (context) => {
   const calls: string[] = [];
@@ -185,6 +193,7 @@ test("configuration API replaces the active plugin only after a successful updat
   const replacementPlugin = { ...initialPlugin, summary: "reloaded plugin" };
   const registry = new McpRegistry([{ path: "/ssh/mcp", plugin: initialPlugin }]);
   let failUpdate = false;
+  let replaceRuntime: ((plugin: PersonalMcpPlugin) => void) | undefined;
   const manager: McpConfigManager = {
     pluginId: "ssh",
     getSnapshot: () => ({
@@ -196,6 +205,7 @@ test("configuration API replaces the active plugin only after a successful updat
     }),
     update: async () => {
       if (failUpdate) throw new Error("invalid settings");
+      replaceRuntime?.(replacementPlugin);
       return {
         plugin: replacementPlugin,
         snapshot: {
@@ -213,6 +223,7 @@ test("configuration API replaces the active plugin only after a successful updat
       snapshot: manager.getSnapshot(),
       changedKeys: [],
     }),
+    setRuntimeReplacement: (replace) => { replaceRuntime = replace; },
   };
   const app = createHttpApp({
     host: "127.0.0.1",
@@ -246,4 +257,89 @@ test("configuration API replaces the active plugin only after a successful updat
   });
   assert.equal(failedResponse.status, 400);
   assert.equal(registry.get("ssh")?.plugin, initialPlugin);
+});
+
+test("status exposes rich schema and risk metadata from a test plugin", async (context) => {
+  const richFields: readonly PluginConfigField[] = [
+    { key: "TEXT", label: "Text", description: "text", type: "text", defaultValue: "", required: true, placeholder: "value", group: { id: "general", label: "General" } },
+    { key: "PASSWORD", label: "Password", description: "password", type: "password", defaultValue: "", secret: true },
+    { key: "NUMBER", label: "Number", description: "number", type: "number", defaultValue: 3 },
+    { key: "BOOLEAN", label: "Boolean", description: "boolean", type: "boolean", defaultValue: false, dangerous: true },
+    { key: "SELECT", label: "Select", description: "select", type: "select", defaultValue: "a", options: [{ value: "a", label: "A" }] },
+    { key: "MULTI", label: "Multi", description: "multi", type: "multiselect", defaultValue: ["a"], options: [{ value: "a", label: "A" }] },
+    { key: "TEXTAREA", label: "Textarea", description: "textarea", type: "textarea", defaultValue: "" },
+    { key: "PATH", label: "Path", description: "path", type: "path", defaultValue: "" },
+  ];
+  const serverSource = createSshPlugin({
+    config: { allowedTargets: new Set(), allowCommands: false, ports: [] },
+  });
+  const plugin: PersonalMcpPlugin = {
+    id: "schema-test",
+    displayName: "Schema Test",
+    summary: "metadata-driven test plugin",
+    category: { id: "test", name: "Test", description: "Test plugins" },
+    tools: [
+      { name: "read", title: "Read", risk: "read-only" },
+      { name: "write", title: "Write", risk: "write" },
+      { name: "delete", title: "Delete", risk: "destructive", requiresConfirmation: true },
+      { name: "admin", title: "Admin", risk: "privileged", requiresConfirmation: true, disabledByDefault: true },
+      { name: "legacy", title: "Legacy write", risk: "write-capable" },
+    ],
+    config: { fields: richFields },
+    createServer: serverSource.createServer,
+  };
+  const manager: McpConfigManager = {
+    pluginId: plugin.id,
+    getSnapshot: () => ({
+      pluginId: plugin.id,
+      fields: richFields,
+      values: { TEXT: "configured", NUMBER: 3, BOOLEAN: false, MULTI: ["a"] },
+      revision: 0,
+      updatedAt: null,
+    }),
+    update: async () => { throw new Error("not used"); },
+    reload: async () => { throw new Error("not used"); },
+  };
+  const app = createHttpApp({
+    host: "127.0.0.1",
+    serviceName: "schema-test",
+    logger: { info: () => undefined, error: () => undefined },
+    mounts: [{ path: "/schema-test/mcp", plugin }],
+    configManagers: [manager],
+  });
+  const { server, url } = await startHttpServer(app, "127.0.0.1", 0);
+  context.after(async () => {
+    server.close();
+    await once(server, "close");
+  });
+
+  const response = await fetch(new URL("/api/status", url));
+  const status = await response.json() as {
+    endpoints: Array<{ tools: PersonalMcpPlugin["tools"] }>;
+    configs: PluginConfigSnapshot[];
+  };
+  assert.equal(response.status, 200);
+  assert.deepEqual(status.endpoints[0]?.tools, plugin.tools);
+  assert.deepEqual(status.configs[0]?.fields, richFields);
+
+  const config = status.configs[0];
+  assert.ok(config);
+  const configMarkup = config.fields.map((field) => renderToStaticMarkup(createElement(
+    ConfigFieldEditor,
+    {
+      field,
+      pluginId: config.pluginId,
+      saving: false,
+      value: config.values[field.key] ?? field.defaultValue,
+      update: () => undefined,
+    },
+  ))).join("\n");
+  const toolMarkup = (status.endpoints[0]?.tools ?? []).map((tool) => renderToStaticMarkup(
+    createElement(ToolMetadataRow, { tool }),
+  )).join("\n");
+  assert.match(configMarkup, /type="password"/);
+  assert.match(configMarkup, /<select[^>]*multiple=""/);
+  assert.match(configMarkup, /data-config-type="path"/);
+  assert.match(toolMarkup, /调用前确认/);
+  assert.match(toolMarkup, /默认停用/);
 });

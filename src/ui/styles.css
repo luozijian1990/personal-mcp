@@ -10,6 +10,7 @@
   --border: rgba(60, 60, 67, 0.18);
   --success: #248a3d;
   --warning: #9a6700;
+  --danger: #d1242f;
   --shadow: rgba(29, 29, 31, 0.07);
   --content-max-width: 1880px;
   --page-gutter: clamp(20px, 2.2vw, 36px);
@@ -391,6 +392,12 @@ code {
 .tool-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; }
 .tool-row + .tool-row { border-left: 1px solid var(--border); }
 .tool-row > div { display: grid; gap: 7px; }
+.tool-hints { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 11px; }
+.tool-hints span { padding: 2px 7px; border: 1px solid var(--border); border-radius: 999px; }
+.metadata-label { display: inline-flex; width: fit-content; padding: 1px 7px; color: var(--muted); font-size: 12px; font-weight: 600; line-height: 18px; border: 1px solid var(--border); border-radius: 999px; }
+.metadata-label-success { color: var(--success); border-color: color-mix(in srgb, var(--success) 36%, var(--border)); }
+.metadata-label-attention { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 40%, var(--border)); }
+.metadata-label-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 38%, var(--border)); }
 
 .config-section {
   margin-top: 52px;
@@ -418,23 +425,54 @@ code {
   background: var(--subtle);
 }
 
-.config-text-field,
-.config-toggle-row {
+.config-field-group + .config-field-group { border-top: 1px solid var(--border); }
+.config-group-heading { display: grid; gap: 4px; padding: 16px 0 4px; }
+.config-group-heading strong { font-size: 13px; }
+.config-group-heading span { color: var(--muted); font-size: 12px; }
+
+.config-field {
   padding: 18px 0;
 }
 
-.config-text-field + .config-text-field,
-.config-text-field + .config-toggle-row,
-.config-toggle-row + .config-text-field,
-.config-toggle-row + .config-toggle-row {
+.config-field + .config-field {
   border-top: 1px solid var(--border);
 }
 
-.config-text-field > span { margin-bottom: 8px; }
-.config-text-field input { font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace; }
+.config-text-field > label { display: block; margin-bottom: 8px; }
+.config-input {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 12px;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--canvas);
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+}
+.config-text-field select,
+.config-text-field textarea {
+  width: 100%;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--canvas);
+  font: 13px ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace;
+}
+.config-text-field select { min-height: 32px; padding: 5px 8px; }
+.config-text-field select[multiple] { min-height: 104px; }
+.config-text-field textarea { min-height: 112px; padding: 8px 10px; resize: vertical; }
+.config-text-field > p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .config-field-label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .config-field-label code { font-weight: 400; }
 .config-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.config-switch { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.config-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.config-switch-track { display: flex; align-items: center; width: 32px; height: 20px; padding: 2px; border-radius: 999px; background: var(--border); }
+.config-switch-track > span { width: 16px; height: 16px; border-radius: 50%; background: var(--canvas); transition: transform 120ms ease; }
+.config-switch input:checked + .config-switch-track { background: var(--accent); }
+.config-switch input:checked + .config-switch-track > span { transform: translateX(12px); }
+.config-switch input:focus-visible + .config-switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+.config-switch input:disabled ~ * { opacity: 0.55; cursor: not-allowed; }
 .config-field-copy { display: grid; gap: 7px; }
 .config-field-copy p { max-width: 720px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .config-feedback { display: flex; align-items: center; gap: 7px; margin-top: 20px; }
@@ -470,6 +508,7 @@ code {
     --border: rgba(255, 255, 255, 0.13);
     --success: #30d158;
     --warning: #ffd60a;
+    --danger: #ff453a;
     --shadow: rgba(0, 0, 0, 0.24);
   }
   .brand-mark { color: #1c1c1e; }

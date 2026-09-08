@@ -20,22 +20,22 @@ import {
 import {
   Button,
   Flash,
-  FormControl,
   Heading,
   IconButton,
   Label,
   Spinner,
   Text,
-  TextInput,
   Tooltip,
-  ToggleSwitch,
 } from "@primer/react";
+import type {
+  PersonalMcpToolMetadata,
+  PluginConfigSnapshot,
+  PluginConfigValue,
+} from "../core/plugin.js";
+import { groupConfigFields } from "./config-metadata.js";
+import { ConfigFieldEditor, ToolMetadataRow } from "./MetadataControls.js";
 
-interface ToolStatus {
-  readonly name: string;
-  readonly title: string;
-  readonly risk: "read-only" | "write-capable";
-}
+type ToolStatus = PersonalMcpToolMetadata;
 
 interface CategoryStatus {
   readonly id: string;
@@ -51,26 +51,6 @@ interface PluginStatus {
   readonly path: string;
   readonly tools: readonly ToolStatus[];
   readonly configurable: boolean;
-}
-
-type PluginConfigValue = string | boolean;
-
-interface PluginConfigField {
-  readonly key: string;
-  readonly label: string;
-  readonly description: string;
-  readonly type: "text" | "boolean";
-  readonly defaultValue: PluginConfigValue;
-  readonly required?: boolean;
-  readonly dangerous?: boolean;
-}
-
-interface PluginConfigSnapshot {
-  readonly pluginId: string;
-  readonly fields: readonly PluginConfigField[];
-  readonly values: Readonly<Record<string, PluginConfigValue>>;
-  readonly revision: number;
-  readonly updatedAt: string | null;
 }
 
 interface ServiceStatus {
@@ -295,7 +275,7 @@ function HomePage({ data, navigate }: {
 
 function CatalogPage({ data, categoryId, navigate }: {
   readonly data: ServiceStatus;
-  readonly categoryId?: string;
+  readonly categoryId: string | undefined;
   readonly navigate: (route: Route) => void;
 }) {
   const categories = groupCategories(data.endpoints);
@@ -414,10 +394,7 @@ function PluginDetail({ plugin, data, copied, copy, navigate }: {
         <div className="section-title-line"><ToolsIcon size={18} /><Heading as="h2">可用工具</Heading></div>
         <div className="tool-list">
           {plugin.tools.map((tool) => (
-            <div className="tool-row" key={tool.name}>
-              <div><strong>{tool.title}</strong><code>{tool.name}</code></div>
-              <Label variant={tool.risk === "read-only" ? "success" : "attention"}>{tool.risk === "read-only" ? "只读" : "可变更"}</Label>
-            </div>
+            <ToolMetadataRow tool={tool} key={tool.name} />
           ))}
         </div>
       </section>
@@ -498,43 +475,25 @@ function PluginConfigPanel({ pluginId }: { readonly pluginId: string }) {
       {!loading && config !== null && (
         <form onSubmit={(event) => { event.preventDefault(); void saveAndReload(); }}>
           <div className="config-fields">
-            {config.fields.map((field) => field.type === "boolean" ? (
-              <div className="config-toggle-row" key={field.key}>
-                <div id={`${pluginId}-${field.key}-label`} className="config-field-copy">
-                  <div className="config-field-label">
-                    <strong>{field.label}</strong>
-                    {field.dangerous && <Label variant="attention">高风险</Label>}
-                  </div>
-                  <code>{field.key}</code>
-                  <Text as="p">{field.description}</Text>
-                </div>
-                <ToggleSwitch
-                  aria-labelledby={`${pluginId}-${field.key}-label`}
-                  checked={values[field.key] === true}
-                  disabled={saving}
-                  onChange={(checked) => setValues((current) => ({ ...current, [field.key]: checked }))}
-                  buttonLabelOn="已启用"
-                  buttonLabelOff="已停用"
-                />
-              </div>
-            ) : (
-              <FormControl
-                className="config-text-field"
-                id={`${pluginId}-${field.key}`}
-                key={field.key}
-                required={field.required}
-              >
-                <FormControl.Label>
-                  <span className="config-field-label"><strong>{field.label}</strong><code>{field.key}</code></span>
-                </FormControl.Label>
-                <TextInput
-                  block
-                  disabled={saving}
-                  value={typeof values[field.key] === "string" ? values[field.key] : ""}
-                  onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
-                />
-                <FormControl.Caption>{field.description}</FormControl.Caption>
-              </FormControl>
+            {groupConfigFields(config.fields).map((group, index) => (
+              <section className="config-field-group" key={`${group.group?.id ?? "default"}-${index}`}>
+                {group.group !== undefined && (
+                  <header className="config-group-heading">
+                    <strong>{group.group.label}</strong>
+                    {group.group.description !== undefined && <span>{group.group.description}</span>}
+                  </header>
+                )}
+                {group.fields.map((field) => (
+                  <ConfigFieldEditor
+                    field={field}
+                    key={field.key}
+                    pluginId={pluginId}
+                    saving={saving}
+                    value={values[field.key] ?? field.defaultValue}
+                    update={(value) => setValues((current) => ({ ...current, [field.key]: value }))}
+                  />
+                ))}
+              </section>
             ))}
           </div>
 

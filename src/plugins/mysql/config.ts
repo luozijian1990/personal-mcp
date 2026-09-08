@@ -4,7 +4,7 @@ export const MYSQL_CONFIG_FIELDS: readonly PluginConfigField[] = [
   { key: "MYSQL_HOST", label: "MySQL Host", description: "数据库主机。", type: "text", defaultValue: "localhost", required: true },
   { key: "MYSQL_PORT", label: "MySQL Port", description: "数据库端口。", type: "text", defaultValue: "3306", required: true },
   { key: "MYSQL_USER", label: "MySQL User", description: "数据库用户名。", type: "text", defaultValue: "", required: true },
-  { key: "MYSQL_PASSWORD", label: "MySQL Password", description: "数据库密码。", type: "text", defaultValue: "", required: true, dangerous: true },
+  { key: "MYSQL_PASSWORD", label: "MySQL Password", description: "数据库密码。", type: "password", defaultValue: "", required: true, secret: true },
   { key: "MYSQL_DATABASE", label: "MySQL Database", description: "默认数据库名。", type: "text", defaultValue: "", required: true },
 ];
 

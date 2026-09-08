@@ -11,6 +11,8 @@ export const SSH_CONFIG_FIELDS: readonly PluginConfigField[] = [
     type: "text",
     defaultValue: "",
     required: true,
+    placeholder: "server-a.example.com,10.0.0.8",
+    group: { id: "connection", label: "连接" },
   },
   {
     key: "SSH_MCP_USERNAME",
@@ -19,6 +21,7 @@ export const SSH_CONFIG_FIELDS: readonly PluginConfigField[] = [
     type: "text",
     defaultValue: "",
     required: true,
+    group: { id: "connection", label: "连接" },
   },
   {
     key: "SSH_MCP_PORTS",
@@ -27,6 +30,8 @@ export const SSH_CONFIG_FIELDS: readonly PluginConfigField[] = [
     type: "text",
     defaultValue: "",
     required: true,
+    placeholder: "22,2222",
+    group: { id: "connection", label: "连接" },
   },
   {
     key: "SSH_MCP_ALLOW_COMMANDS",
@@ -35,22 +40,27 @@ export const SSH_CONFIG_FIELDS: readonly PluginConfigField[] = [
     type: "boolean",
     defaultValue: false,
     dangerous: true,
+    group: { id: "safety", label: "安全边界" },
   },
   {
     key: "SSH_MCP_PRIVATE_KEY_PATH",
     label: "私钥路径",
     description: "SSH 私钥的本地路径，只保存路径，不上传或复制私钥内容。",
-    type: "text",
+    type: "path",
     defaultValue: "",
     required: true,
+    placeholder: "~/.ssh/id_ed25519",
+    group: { id: "credentials", label: "凭据文件" },
   },
   {
     key: "SSH_MCP_KNOWN_HOSTS_PATH",
     label: "known_hosts 路径",
     description: "用于校验远端主机指纹；每个白名单主机至少要匹配一个候选端口。",
-    type: "text",
+    type: "path",
     defaultValue: "",
     required: true,
+    placeholder: "~/.ssh/known_hosts",
+    group: { id: "credentials", label: "凭据文件" },
   },
 ];
 

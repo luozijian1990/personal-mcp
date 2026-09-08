@@ -82,7 +82,9 @@ export function createSshPlugin(
       {
         name: "ssh_execute_command",
         title: "执行命令",
-        risk: "write-capable",
+        risk: "privileged",
+        requiresConfirmation: true,
+        disabledByDefault: true,
       },
     ],
     config: { fields: SSH_CONFIG_FIELDS },

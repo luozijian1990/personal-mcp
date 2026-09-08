@@ -1,17 +1,72 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { RuntimeConfigStore, RuntimeConfigValues } from "./runtime-config.js";
 
-export type PluginConfigValue = string | boolean;
+export type PluginConfigValue = string | number | boolean | readonly string[];
 
-export interface PluginConfigField {
+export type PluginConfigFieldType =
+  | "text"
+  | "password"
+  | "number"
+  | "boolean"
+  | "select"
+  | "multiselect"
+  | "textarea"
+  | "path";
+
+export interface PluginConfigOption {
+  readonly value: string;
+  readonly label: string;
+  readonly description?: string;
+}
+
+export interface PluginConfigGroup {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+}
+
+interface PluginConfigFieldBase {
   readonly key: string;
   readonly label: string;
   readonly description: string;
-  readonly type: "text" | "boolean";
-  readonly defaultValue: PluginConfigValue;
   readonly required?: boolean;
   readonly dangerous?: boolean;
+  readonly placeholder?: string;
+  readonly group?: PluginConfigGroup;
 }
+
+export type PluginConfigField = PluginConfigFieldBase & (
+  | {
+    readonly type: "text" | "password" | "textarea" | "path";
+    readonly defaultValue: string;
+    readonly secret?: boolean;
+    readonly options?: never;
+  }
+  | {
+    readonly type: "number";
+    readonly defaultValue: number;
+    readonly secret?: never;
+    readonly options?: never;
+  }
+  | {
+    readonly type: "boolean";
+    readonly defaultValue: boolean;
+    readonly secret?: never;
+    readonly options?: never;
+  }
+  | {
+    readonly type: "select";
+    readonly defaultValue: string;
+    readonly secret?: never;
+    readonly options: readonly [PluginConfigOption, ...PluginConfigOption[]];
+  }
+  | {
+    readonly type: "multiselect";
+    readonly defaultValue: readonly string[];
+    readonly secret?: never;
+    readonly options: readonly [PluginConfigOption, ...PluginConfigOption[]];
+  }
+);
 
 export interface PluginConfigSnapshot {
   readonly pluginId: string;
@@ -43,7 +98,7 @@ export interface GenericConfigLifecycleOptions<Config> {
   readonly store: RuntimeConfigStore;
   readonly load: (environment: NodeJS.ProcessEnv) => Config;
   readonly values: (config: Config) => Readonly<Record<string, PluginConfigValue>>;
-  readonly parse: (input: unknown, current: Readonly<Record<string, PluginConfigValue>>) => Record<string, string | boolean>;
+  readonly parse: (input: unknown, current: Readonly<Record<string, PluginConfigValue>>) => Record<string, PluginConfigValue>;
   readonly environment: (values: Readonly<Record<string, PluginConfigValue>>, base: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
   readonly persist?: (values: Readonly<Record<string, PluginConfigValue>>, base: NodeJS.ProcessEnv) => RuntimeConfigValues;
   readonly validate: (config: Config) => void | Promise<void>;
@@ -86,7 +141,7 @@ export function createGenericConfigManager<Config>(
     const after = snapshot();
     return { plugin: currentPlugin, snapshot: after, changedKeys: options.fields
       .map((field) => field.key)
-      .filter((key) => before.values[key] !== after.values[key]) };
+      .filter((key) => !configValuesEqual(before.values[key], after.values[key])) };
   };
   const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = operations.then(operation);
@@ -96,6 +151,14 @@ export function createGenericConfigManager<Config>(
   return { pluginId: options.pluginId, getSnapshot: snapshot,
     setRuntimeReplacement: (replace) => { replaceRuntime = replace; },
     update: (input) => enqueue(() => run(input)), reload: () => enqueue(() => run(undefined, true)) };
+}
+
+function configValuesEqual(
+  left: PluginConfigValue | undefined,
+  right: PluginConfigValue | undefined,
+): boolean {
+  if (!Array.isArray(left) || !Array.isArray(right)) return left === right;
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 export interface PersonalMcpPluginMetadata {
@@ -109,12 +172,26 @@ export interface PersonalMcpPluginMetadata {
   };
 }
 
+export type ToolRisk =
+  | "read-only"
+  | "write"
+  | "destructive"
+  | "privileged"
+  /** @deprecated Compatibility alias for pre-risk-model plugins. Prefer `write`. */
+  | "write-capable";
+
+export interface PersonalMcpToolMetadata {
+  readonly name: string;
+  readonly title: string;
+  readonly risk: ToolRisk;
+  /** Interaction hint only. The MCP server must still enforce authorization and safety. */
+  readonly requiresConfirmation?: boolean;
+  /** Discovery/exposure hint only. The MCP server remains the authoritative safety boundary. */
+  readonly disabledByDefault?: boolean;
+}
+
 export interface PersonalMcpPlugin extends PersonalMcpPluginMetadata {
-  readonly tools: readonly {
-    readonly name: string;
-    readonly title: string;
-    readonly risk: "read-only" | "write-capable";
-  }[];
+  readonly tools: readonly PersonalMcpToolMetadata[];
   readonly config?: {
     readonly fields: readonly PluginConfigField[];
   };

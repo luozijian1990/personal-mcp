@@ -30,3 +30,37 @@ test("generic config lifecycle does not publish when persistence fails", async (
   assert.equal(manager.getSnapshot().revision, 0);
   assert.equal(replaced, 0);
 });
+
+test("generic config lifecycle compares multiselect values by content", async () => {
+  let environment = { LIST: "a,b" };
+  const multiselectFields: readonly PluginConfigField[] = [{
+    key: "LIST",
+    label: "List",
+    description: "Selected values",
+    type: "multiselect",
+    defaultValue: [],
+    options: [
+      { value: "a", label: "A" },
+      { value: "b", label: "B" },
+      { value: "c", label: "C" },
+    ],
+  }];
+  const manager = createGenericConfigManager({
+    pluginId: "test",
+    fields: multiselectFields,
+    store: {
+      environment: () => ({ ...environment }),
+      update: async (values) => { environment = { ...environment, LIST: values.LIST ?? "" }; },
+    },
+    load: (env) => ({ list: (env.LIST ?? "").split(",").filter(Boolean) }),
+    values: ({ list }) => ({ LIST: [...list] }),
+    parse: (input) => ({ LIST: [...(input as { LIST: readonly string[] }).LIST] }),
+    environment: (values, base) => ({ ...base, LIST: (values.LIST as readonly string[]).join(",") }),
+    persist: (values) => ({ LIST: (values.LIST as readonly string[]).join(",") }),
+    validate: () => undefined,
+    createPlugin: ({ list }) => plugin(list.join(",")),
+  });
+
+  assert.deepEqual((await manager.update({ LIST: ["a", "b"] })).changedKeys, []);
+  assert.deepEqual((await manager.update({ LIST: ["a", "c"] })).changedKeys, ["LIST"]);
+});

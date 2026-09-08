@@ -8,6 +8,7 @@ export const PROMETHEUS_CONFIG_FIELDS: readonly PluginConfigField[] = [
     type: "text",
     defaultValue: "",
     required: true,
+    placeholder: "http://127.0.0.1:9090",
   },
   {
     key: "PROMETHEUS_MCP_QUERY_TIMEOUT",
