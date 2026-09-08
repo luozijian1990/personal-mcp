@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 
-import type { PersonalMcpPlugin } from "../../core/plugin.js";
+import type { PersonalMcpPlugin, PersonalMcpPluginMetadata } from "../../core/plugin.js";
 import {
   PROMETHEUS_CONFIG_FIELDS,
   type PrometheusPluginConfig,
@@ -38,19 +38,23 @@ export interface CreatePrometheusPluginOptions {
   readonly config?: PrometheusPluginConfig;
 }
 
+export const PROMETHEUS_PLUGIN_METADATA: PersonalMcpPluginMetadata = {
+  id: "prometheus",
+  displayName: "Prometheus Metrics",
+  summary: "使用 PromQL 查询 Prometheus 指标，支持即时查询和区间查询。",
+  category: {
+    id: "observability",
+    name: "可观测性",
+    description: "查询指标、监控和运行状态数据。",
+  },
+};
+
 export function createPrometheusPlugin(
   options: CreatePrometheusPluginOptions = {},
 ): PersonalMcpPlugin {
   const config = options.config ?? loadPrometheusPluginConfig();
   return {
-    id: "prometheus",
-    displayName: "Prometheus Metrics",
-    summary: "使用 PromQL 查询 Prometheus 指标，支持即时查询和区间查询。",
-    category: {
-      id: "observability",
-      name: "可观测性",
-      description: "查询指标、监控和运行状态数据。",
-    },
+    ...PROMETHEUS_PLUGIN_METADATA,
     tools: [
       { name: "prometheus_query", title: "即时查询", risk: "read-only" },
       { name: "prometheus_query_range", title: "区间查询", risk: "read-only" },

@@ -7,19 +7,24 @@ export interface McpMount {
 
 export class McpRegistry {
   private readonly entries = new Map<string, { readonly path: string; plugin: PersonalMcpPlugin }>();
+  private readonly paths = new Set<string>();
 
   constructor(mounts: readonly McpMount[]) {
     for (const mount of mounts) {
+      if (this.entries.has(mount.plugin.id)) {
+        throw new Error(`Duplicate MCP plugin id: ${mount.plugin.id}`);
+      }
+      if (this.paths.has(mount.path)) {
+        throw new Error(`Duplicate MCP mount path: ${mount.path}`);
+      }
       const expectedPath = `/${mount.plugin.id}/mcp`;
       if (mount.path !== expectedPath) {
         throw new Error(
           `Invalid MCP mount path for ${mount.plugin.id}: expected ${expectedPath}, received ${mount.path}`,
         );
       }
-      if (this.entries.has(mount.plugin.id)) {
-        throw new Error(`Duplicate MCP plugin id: ${mount.plugin.id}`);
-      }
       this.entries.set(mount.plugin.id, { path: mount.path, plugin: mount.plugin });
+      this.paths.add(mount.path);
     }
   }
 

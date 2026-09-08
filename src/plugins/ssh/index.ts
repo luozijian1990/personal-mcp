@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 
-import type { PersonalMcpPlugin } from "../../core/plugin.js";
+import type { PersonalMcpPlugin, PersonalMcpPluginMetadata } from "../../core/plugin.js";
 import { SSH_CONFIG_FIELDS, type SshPluginConfig } from "./config.js";
 import { loadSshPluginConfig } from "./config.js";
 import type { SshExecutor, SshRunResult } from "./ssh-runner.js";
@@ -54,6 +54,17 @@ export interface CreateSshPluginOptions {
   readonly executor?: SshExecutor;
 }
 
+export const SSH_PLUGIN_METADATA: PersonalMcpPluginMetadata = {
+  id: "ssh",
+  displayName: "SSH Remote Operations",
+  summary: "使用配置的用户名、端口和密钥连接白名单主机，执行系统快照与受控命令。",
+  category: {
+    id: "remote-operations",
+    name: "远程运维",
+    description: "连接和诊断远程 Linux/Unix 主机。",
+  },
+};
+
 export function createSshPlugin(
   options: CreateSshPluginOptions = {},
 ): PersonalMcpPlugin {
@@ -61,14 +72,7 @@ export function createSshPlugin(
   const executor = options.executor ?? ((request) => runSsh(request, config));
 
   return {
-    id: "ssh",
-    displayName: "SSH Remote Operations",
-    summary: "使用配置的用户名、端口和密钥连接白名单主机，执行系统快照与受控命令。",
-    category: {
-      id: "remote-operations",
-      name: "远程运维",
-      description: "连接和诊断远程 Linux/Unix 主机。",
-    },
+    ...SSH_PLUGIN_METADATA,
     tools: [
       {
         name: "ssh_get_system_snapshot",

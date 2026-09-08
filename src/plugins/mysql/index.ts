@@ -1,15 +1,22 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 import { createConnection, type Connection } from "mysql2/promise";
-import type { PersonalMcpPlugin } from "../../core/plugin.js";
+import type { PersonalMcpPlugin, PersonalMcpPluginMetadata } from "../../core/plugin.js";
 import { loadMysqlPluginConfig, MYSQL_CONFIG_FIELDS, validateMysqlConfig, type MysqlPluginConfig } from "./config.js";
 
 export interface MysqlExecutor { (config: MysqlPluginConfig, query: string): Promise<string>; }
 
+export const MYSQL_PLUGIN_METADATA: PersonalMcpPluginMetadata = {
+  id: "mysql",
+  displayName: "MySQL Database",
+  summary: "浏览 MySQL 表并执行 SQL 查询。",
+  category: { id: "databases", name: "数据库", description: "查询和分析数据库数据。" },
+};
+
 export function createMysqlPlugin(options: { config?: MysqlPluginConfig; executor?: MysqlExecutor } = {}): PersonalMcpPlugin {
   const config = options.config ?? loadMysqlPluginConfig();
   const executor = options.executor ?? executeMysql;
-  return { id: "mysql", displayName: "MySQL Database", summary: "浏览 MySQL 表并执行 SQL 查询。", category: { id: "databases", name: "数据库", description: "查询和分析数据库数据。" }, tools: [{ name: "execute_sql", title: "执行 SQL", risk: "write-capable" }], config: { fields: MYSQL_CONFIG_FIELDS }, createServer: () => createMysqlServer(config, executor) };
+  return { ...MYSQL_PLUGIN_METADATA, tools: [{ name: "execute_sql", title: "执行 SQL", risk: "write-capable" }], config: { fields: MYSQL_CONFIG_FIELDS }, createServer: () => createMysqlServer(config, executor) };
 }
 
 function createMysqlServer(config: MysqlPluginConfig, executor: MysqlExecutor): McpServer {

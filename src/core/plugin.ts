@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/server";
+import type { RuntimeConfigStore } from "./runtime-config.js";
 
 export type PluginConfigValue = string | boolean;
 
@@ -33,7 +34,7 @@ export interface McpConfigManager {
   reload(): Promise<PluginConfigUpdate>;
 }
 
-export interface PersonalMcpPlugin {
+export interface PersonalMcpPluginMetadata {
   readonly id: string;
   readonly displayName: string;
   readonly summary: string;
@@ -42,6 +43,9 @@ export interface PersonalMcpPlugin {
     readonly name: string;
     readonly description: string;
   };
+}
+
+export interface PersonalMcpPlugin extends PersonalMcpPluginMetadata {
   readonly tools: readonly {
     readonly name: string;
     readonly title: string;
@@ -51,4 +55,11 @@ export interface PersonalMcpPlugin {
     readonly fields: readonly PluginConfigField[];
   };
   createServer(): McpServer;
+}
+
+/** Declarative registration plus the factories needed to create a runtime plugin. */
+export interface PersonalMcpPluginDefinition {
+  readonly metadata: PersonalMcpPluginMetadata;
+  readonly createPlugin: (environment: NodeJS.ProcessEnv) => PersonalMcpPlugin;
+  readonly createConfigManager?: (store: RuntimeConfigStore) => McpConfigManager;
 }

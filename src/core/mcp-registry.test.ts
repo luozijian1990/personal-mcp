@@ -34,3 +34,19 @@ test("registry enforces plugin ids and canonical MCP paths", () => {
     /unknown MCP plugin/,
   );
 });
+
+test("registry rejects duplicate plugin ids and mount paths", () => {
+  const first = sshPlugin("first");
+  const second = sshPlugin("second");
+  assert.throws(
+    () => new McpRegistry([{ path: "/ssh/mcp", plugin: first }, { path: "/ssh/mcp", plugin: second }]),
+    /Duplicate MCP plugin id: ssh/,
+  );
+  assert.throws(
+    () => new McpRegistry([
+      { path: "/ssh/mcp", plugin: first },
+      { path: "/ssh/mcp", plugin: { ...second, id: "other" } },
+    ]),
+    /Duplicate MCP mount path: \/ssh\/mcp/,
+  );
+});
