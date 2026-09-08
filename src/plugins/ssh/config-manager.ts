@@ -7,94 +7,22 @@ import {
   loadSshPluginConfig,
 } from "./config.js";
 import { knownHostKeysFor, targetHost } from "./ssh-runner.js";
-import type {
-  McpConfigManager,
-  PluginConfigSnapshot,
-  PluginConfigUpdate,
-  PluginConfigValue,
-} from "../../core/plugin.js";
+import type { McpConfigManager, PluginConfigValue } from "../../core/plugin.js";
+import { createGenericConfigManager } from "../../core/plugin-config-manager.js";
 import type { RuntimeConfigStore } from "../../core/runtime-config.js";
 
 const CONFIG_KEYS = new Set(SSH_CONFIG_FIELDS.map((field) => field.key));
 
 export function createSshConfigManager(store: RuntimeConfigStore): McpConfigManager {
-  let revision = 0;
-  let updatedAt: string | null = null;
-  let operations = Promise.resolve();
-
-  const getSnapshot = (): PluginConfigSnapshot => {
-    const environment = store.environment();
-    const config = loadSshPluginConfig(environment);
-    return {
-      pluginId: "ssh",
-      fields: SSH_CONFIG_FIELDS,
-      values: {
-        SSH_MCP_ALLOWED_TARGETS: [...config.allowedTargets].join(","),
-        SSH_MCP_USERNAME: config.username ?? "",
-        SSH_MCP_PORTS: config.ports.join(","),
-        SSH_MCP_ALLOW_COMMANDS: config.allowCommands,
-        SSH_MCP_PRIVATE_KEY_PATH: config.privateKeyPath ?? "",
-        SSH_MCP_KNOWN_HOSTS_PATH: config.knownHostsPath ?? "",
-      },
-      revision,
-      updatedAt,
-    };
-  };
-
-  const reloadNow = async (): Promise<PluginConfigUpdate> => {
-    const config = loadSshPluginConfig(store.environment());
-    await validateCredentialFiles(config);
-    revision += 1;
-    updatedAt = new Date().toISOString();
-    return {
-      plugin: createSshPlugin({ config }),
-      snapshot: getSnapshot(),
-      changedKeys: [],
-    };
-  };
-
-  const updateNow = async (input: unknown): Promise<PluginConfigUpdate> => {
-    const current = getSnapshot();
-    const values = parseInput(input);
-    const next = validateValues(values);
-    const persisted = {
-      SSH_MCP_ALLOWED_TARGETS: next.SSH_MCP_ALLOWED_TARGETS,
-      SSH_MCP_USERNAME: next.SSH_MCP_USERNAME,
-      SSH_MCP_PORTS: next.SSH_MCP_PORTS,
-      SSH_MCP_ALLOW_COMMANDS: String(next.SSH_MCP_ALLOW_COMMANDS),
-      SSH_MCP_PRIVATE_KEY_PATH: next.SSH_MCP_PRIVATE_KEY_PATH,
-      SSH_MCP_KNOWN_HOSTS_PATH: next.SSH_MCP_KNOWN_HOSTS_PATH,
-    };
-    const config = loadSshPluginConfig({ ...store.environment(), ...persisted });
-    await validateCredentialFiles(config);
-    const plugin = createSshPlugin({ config });
-
-    await store.update(persisted);
-
-    revision += 1;
-    updatedAt = new Date().toISOString();
-    const snapshot = getSnapshot();
-    return {
-      plugin,
-      snapshot,
-      changedKeys: SSH_CONFIG_FIELDS
-        .map((field) => field.key)
-        .filter((key) => current.values[key] !== snapshot.values[key]),
-    };
-  };
-
-  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
-    const result = operations.then(operation);
-    operations = result.then(() => undefined, () => undefined);
-    return result;
-  };
-
-  return {
-    pluginId: "ssh",
-    getSnapshot,
-    update: (input) => enqueue(() => updateNow(input)),
-    reload: () => enqueue(reloadNow),
-  };
+  return createGenericConfigManager({ pluginId: "ssh", fields: SSH_CONFIG_FIELDS, store,
+    load: loadSshPluginConfig,
+    values: (config) => ({ SSH_MCP_ALLOWED_TARGETS: [...config.allowedTargets].join(","), SSH_MCP_USERNAME: config.username ?? "", SSH_MCP_PORTS: config.ports.join(","), SSH_MCP_ALLOW_COMMANDS: config.allowCommands, SSH_MCP_PRIVATE_KEY_PATH: config.privateKeyPath ?? "", SSH_MCP_KNOWN_HOSTS_PATH: config.knownHostsPath ?? "" }),
+    parse: (input, current) => validateValues({ ...current, ...parseInput(input) }),
+    environment: (values, base) => ({ ...base, ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, String(value)])) }),
+    persist: (values) => ({ SSH_MCP_ALLOWED_TARGETS: String(values.SSH_MCP_ALLOWED_TARGETS), SSH_MCP_USERNAME: String(values.SSH_MCP_USERNAME), SSH_MCP_PORTS: String(values.SSH_MCP_PORTS), SSH_MCP_ALLOW_COMMANDS: String(values.SSH_MCP_ALLOW_COMMANDS), SSH_MCP_PRIVATE_KEY_PATH: String(values.SSH_MCP_PRIVATE_KEY_PATH), SSH_MCP_KNOWN_HOSTS_PATH: String(values.SSH_MCP_KNOWN_HOSTS_PATH) }),
+    validate: validateCredentialFiles,
+    createPlugin: (config) => createSshPlugin({ config }),
+  });
 }
 
 async function validateCredentialFiles(config: SshPluginConfig): Promise<void> {

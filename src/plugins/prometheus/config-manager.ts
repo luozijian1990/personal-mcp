@@ -4,84 +4,22 @@ import {
   type PrometheusPluginConfig,
   loadPrometheusPluginConfig,
 } from "./config.js";
-import type {
-  McpConfigManager,
-  PluginConfigSnapshot,
-  PluginConfigUpdate,
-  PluginConfigValue,
-} from "../../core/plugin.js";
+import type { McpConfigManager, PluginConfigValue } from "../../core/plugin.js";
+import { createGenericConfigManager } from "../../core/plugin-config-manager.js";
 import type { RuntimeConfigStore } from "../../core/runtime-config.js";
 
 const CONFIG_KEYS = new Set(PROMETHEUS_CONFIG_FIELDS.map((field) => field.key));
 
 export function createPrometheusConfigManager(store: RuntimeConfigStore): McpConfigManager {
-  let revision = 0;
-  let updatedAt: string | null = null;
-  let operations = Promise.resolve();
-
-  const getSnapshot = (): PluginConfigSnapshot => {
-    const config = loadPrometheusPluginConfig(store.environment());
-    return {
-      pluginId: "prometheus",
-      fields: PROMETHEUS_CONFIG_FIELDS,
-      values: {
-        PROMETHEUS_MCP_URL: config.url,
-        PROMETHEUS_MCP_QUERY_TIMEOUT: String(config.queryTimeoutSeconds),
-      },
-      revision,
-      updatedAt,
-    };
-  };
-
-  const reloadNow = async (): Promise<PluginConfigUpdate> => {
-    const config = loadPrometheusPluginConfig(store.environment());
-    validateConfig(config);
-    revision += 1;
-    updatedAt = new Date().toISOString();
-    return {
-      plugin: createPrometheusPlugin({ config }),
-      snapshot: getSnapshot(),
-      changedKeys: [],
-    };
-  };
-
-  const updateNow = async (input: unknown): Promise<PluginConfigUpdate> => {
-    const current = getSnapshot();
-    const values = validateValues(parseInput(input));
-    const persisted = {
-      PROMETHEUS_MCP_URL: values.PROMETHEUS_MCP_URL,
-      PROMETHEUS_MCP_QUERY_TIMEOUT: values.PROMETHEUS_MCP_QUERY_TIMEOUT,
-    };
-    const config = loadPrometheusPluginConfig({ ...store.environment(), ...persisted });
-    validateConfig(config);
-    const plugin = createPrometheusPlugin({ config });
-
-    await store.update(persisted);
-
-    revision += 1;
-    updatedAt = new Date().toISOString();
-    const snapshot = getSnapshot();
-    return {
-      plugin,
-      snapshot,
-      changedKeys: PROMETHEUS_CONFIG_FIELDS
-        .map((field) => field.key)
-        .filter((key) => current.values[key] !== snapshot.values[key]),
-    };
-  };
-
-  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
-    const result = operations.then(operation);
-    operations = result.then(() => undefined, () => undefined);
-    return result;
-  };
-
-  return {
-    pluginId: "prometheus",
-    getSnapshot,
-    update: (input) => enqueue(() => updateNow(input)),
-    reload: () => enqueue(reloadNow),
-  };
+  return createGenericConfigManager({ pluginId: "prometheus", fields: PROMETHEUS_CONFIG_FIELDS, store,
+    load: loadPrometheusPluginConfig,
+    values: (config) => ({ PROMETHEUS_MCP_URL: config.url, PROMETHEUS_MCP_QUERY_TIMEOUT: String(config.queryTimeoutSeconds) }),
+    parse: (input, current) => validateValues({ ...current, ...parseInput(input) }),
+    environment: (values, base) => ({ ...base, ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, String(value)])) }),
+    persist: (values) => ({ PROMETHEUS_MCP_URL: String(values.PROMETHEUS_MCP_URL), PROMETHEUS_MCP_QUERY_TIMEOUT: String(values.PROMETHEUS_MCP_QUERY_TIMEOUT) }),
+    validate: validateConfig,
+    createPlugin: (config) => createPrometheusPlugin({ config }),
+  });
 }
 
 function parseInput(input: unknown): Record<string, PluginConfigValue> {

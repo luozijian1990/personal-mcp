@@ -39,6 +39,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
     if (registry.get(manager.pluginId) === undefined) {
       throw new Error(`Configuration manager has no mounted MCP plugin: ${manager.pluginId}`);
     }
+    manager.setRuntimeReplacement?.((plugin) => registry.replace(manager.pluginId, plugin));
   }
   if (configManagers.size !== (options.configManagers ?? []).length) {
     throw new Error("Duplicate MCP configuration manager");
@@ -86,7 +87,6 @@ export function createHttpApp(options: HttpAppOptions): Express {
       const update = operation === "update"
         ? await manager.update(input)
         : await manager.reload();
-      registry.replace(pluginId, update.plugin);
       logger.info("config.updated", {
         plugin: pluginId,
         changed_keys: update.changedKeys,
