@@ -61,7 +61,7 @@ flowchart LR
 ### 安装并启动
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/luozijian1990/personal-mcp.git
 cd personal-mcp
 npm ci
 npm run dev
