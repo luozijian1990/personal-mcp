@@ -23,12 +23,24 @@ export function ToolMetadataRow({ tool }: { readonly tool: PersonalMcpToolMetada
   );
 }
 
-export function ConfigFieldEditor({ field, pluginId, saving, value, update }: {
+export function ConfigFieldEditor({
+  field,
+  pluginId,
+  saving,
+  value,
+  update,
+  secretConfigured = false,
+  clearRequested = false,
+  clearSecret,
+}: {
   readonly field: PluginConfigField;
   readonly pluginId: string;
   readonly saving: boolean;
   readonly value: PluginConfigValue;
   readonly update: (value: PluginConfigValue) => void;
+  readonly secretConfigured?: boolean;
+  readonly clearRequested?: boolean;
+  readonly clearSecret?: (() => void) | undefined;
 }) {
   const control = configControlKind(field);
   const controlId = `${pluginId}-${field.key}`;
@@ -71,9 +83,9 @@ export function ConfigFieldEditor({ field, pluginId, saving, value, update }: {
   const stringValue = typeof value === "string" || typeof value === "number" ? String(value) : "";
   const sharedProps = {
     "aria-describedby": descriptionId,
-    disabled: saving,
+    disabled: saving || (field.secret === true && clearRequested),
     id: controlId,
-    required: field.required ?? false,
+    required: field.secret ? false : field.required ?? false,
   };
   return (
     <div className="config-field config-text-field">
@@ -99,11 +111,21 @@ export function ConfigFieldEditor({ field, pluginId, saving, value, update }: {
           {...sharedProps}
           className="config-input"
           data-config-type={control}
-          placeholder={field.placeholder}
+          placeholder={field.secret && secretConfigured ? "留空以保留已保存值" : field.placeholder}
           type={control === "password" ? "password" : control === "number" ? "number" : "text"}
           value={stringValue}
           onChange={(event) => update(control === "number" && event.target.value !== "" ? Number(event.target.value) : event.target.value)}
         />
+      )}
+      {field.secret && (
+        <div className="config-secret-state">
+          <span>{clearRequested ? "保存后将清除" : secretConfigured ? "已配置 · 留空会保留" : "尚未配置"}</span>
+          {clearSecret !== undefined && (secretConfigured || clearRequested) && (
+            <button type="button" disabled={saving} onClick={clearSecret}>
+              {clearRequested ? "取消清除" : "明确清除"}
+            </button>
+          )}
+        </div>
       )}
       <p id={descriptionId}>{field.description}</p>
     </div>

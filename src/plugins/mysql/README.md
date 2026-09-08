@@ -63,7 +63,11 @@ MYSQL_DATABASE=app \
 npm run dev
 ```
 
-运行时配置 API 不会返回 `MYSQL_PASSWORD`。通过控制台更新其他字段而未填写新密码时，会保留已经保存的密码。
+运行时配置 API 不会返回 `MYSQL_PASSWORD`，只会通过 `secretStates.MYSQL_PASSWORD.configured`
+说明密码是否已经配置。通过控制台更新其他字段时，省略密码或将密码留空都会保留旧值；
+填写非空密码会替换旧值。清除密码必须点击控制台中的“明确清除”，或向配置 API 发送
+`{"values": {}, "clearSecrets": ["MYSQL_PASSWORD"]}`。MySQL 密码是必填项，因此清除请求会在校验阶段被拒绝，
+并保留当前运行配置。
 
 ## 启动与接入
 

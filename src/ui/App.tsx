@@ -407,6 +407,7 @@ function PluginDetail({ plugin, data, copied, copy, navigate }: {
 function PluginConfigPanel({ pluginId }: { readonly pluginId: string }) {
   const [config, setConfig] = useState<PluginConfigSnapshot | null>(null);
   const [values, setValues] = useState<Record<string, PluginConfigValue>>({});
+  const [clearSecrets, setClearSecrets] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<
@@ -425,6 +426,7 @@ function PluginConfigPanel({ pluginId }: { readonly pluginId: string }) {
       const body = await response.json() as { config: PluginConfigSnapshot };
       setConfig(body.config);
       setValues({ ...body.config.values });
+      setClearSecrets(new Set());
     }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
       setFeedback({ kind: "error", message: errorMessage(error) });
@@ -441,12 +443,13 @@ function PluginConfigPanel({ pluginId }: { readonly pluginId: string }) {
       const response = await fetch(`/api/config/${encodeURIComponent(pluginId)}`, {
         method: "PUT",
         headers: { accept: "application/json", "content-type": "application/json" },
-        body: JSON.stringify({ values }),
+        body: JSON.stringify({ values, clearSecrets: [...clearSecrets] }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
       const body = await response.json() as { config: PluginConfigSnapshot };
       setConfig(body.config);
       setValues({ ...body.config.values });
+      setClearSecrets(new Set());
       setFeedback({ kind: "success", message: "配置已保存，MCP 已重新加载。" });
     } catch (error) {
       setFeedback({ kind: "error", message: errorMessage(error) });
@@ -490,7 +493,24 @@ function PluginConfigPanel({ pluginId }: { readonly pluginId: string }) {
                     pluginId={pluginId}
                     saving={saving}
                     value={values[field.key] ?? field.defaultValue}
-                    update={(value) => setValues((current) => ({ ...current, [field.key]: value }))}
+                    secretConfigured={config.secretStates?.[field.key]?.configured ?? false}
+                    clearRequested={clearSecrets.has(field.key)}
+                    clearSecret={field.secret ? () => setClearSecrets((current) => {
+                      const next = new Set(current);
+                      if (next.has(field.key)) next.delete(field.key);
+                      else next.add(field.key);
+                      return next;
+                    }) : undefined}
+                    update={(value) => {
+                      setValues((current) => ({ ...current, [field.key]: value }));
+                      if (field.secret && typeof value === "string" && value.length > 0) {
+                        setClearSecrets((current) => {
+                          const next = new Set(current);
+                          next.delete(field.key);
+                          return next;
+                        });
+                      }
+                    }}
                   />
                 ))}
               </section>

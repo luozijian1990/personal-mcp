@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { createHttpApp, parseMcpOutput } from "./http-app.js";
 import { McpRegistry } from "./mcp-registry.js";
+import { createGenericConfigManager } from "./plugin-config-manager.js";
 import type {
   McpConfigManager,
   PersonalMcpPlugin,
@@ -257,6 +258,81 @@ test("configuration API replaces the active plugin only after a successful updat
   });
   assert.equal(failedResponse.status, 400);
   assert.equal(registry.get("ssh")?.plugin, initialPlugin);
+});
+
+test("configuration status, errors, and logs never expose Secret values", async (context) => {
+  const fields: readonly PluginConfigField[] = [{
+    key: "TOKEN",
+    label: "Token",
+    description: "Secret token",
+    type: "password",
+    defaultValue: "",
+    secret: true,
+  }];
+  const serverSource = createSshPlugin({
+    config: { allowedTargets: new Set(), allowCommands: false, ports: [] },
+  });
+  const plugin: PersonalMcpPlugin = {
+    id: "secret-test",
+    displayName: "Secret Test",
+    summary: "secret boundary",
+    category: { id: "test", name: "Test", description: "Test plugins" },
+    tools: [],
+    config: { fields },
+    createServer: serverSource.createServer,
+  };
+  const manager = createGenericConfigManager({
+    pluginId: plugin.id,
+    fields,
+    store: { environment: () => ({ TOKEN: "old-secret" }), update: async () => undefined },
+    load: (environment) => ({ token: environment.TOKEN ?? "" }),
+    values: (config) => ({ TOKEN: config.token }),
+    parse: (input, current) => ({
+      ...current,
+      ...((input as { values: Record<string, string> }).values),
+    }),
+    environment: (values, base) => ({ ...base, TOKEN: String(values.TOKEN ?? "") }),
+    persist: (values) => ({ TOKEN: String(values.TOKEN ?? "") }),
+    validate: (config) => { throw new Error(`Rejected token ${config.token}; old value old-secret`); },
+    createPlugin: () => plugin,
+  });
+  const logs: Array<{
+    event: string;
+    fields: Readonly<Record<string, unknown>> | undefined;
+  }> = [];
+  const app = createHttpApp({
+    host: "127.0.0.1",
+    serviceName: "secret-test",
+    logger: {
+      info: (event, logFields) => logs.push({ event, fields: logFields }),
+      error: (event, logFields) => logs.push({ event, fields: logFields }),
+    },
+    mounts: [{ path: "/secret-test/mcp", plugin }],
+    configManagers: [manager],
+  });
+  const { server, url } = await startHttpServer(app, "127.0.0.1", 0);
+  context.after(async () => {
+    server.close();
+    await once(server, "close");
+  });
+
+  const statusResponse = await fetch(new URL("/api/status", url));
+  const statusText = await statusResponse.text();
+  assert.doesNotMatch(statusText, /old-secret/);
+  assert.match(statusText, /"TOKEN":\{"configured":true\}/);
+
+  const updateResponse = await fetch(new URL("/api/config/secret-test", url), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ values: { TOKEN: "new-secret" } }),
+  });
+  const errorText = await updateResponse.text();
+  assert.equal(updateResponse.status, 400);
+  assert.doesNotMatch(errorText, /old-secret|new-secret/);
+  assert.match(errorText, /\[REDACTED\]/);
+  const logText = JSON.stringify(logs);
+  assert.doesNotMatch(logText, /old-secret|new-secret/);
+  assert.match(logText, /\[REDACTED\]/);
 });
 
 test("status exposes rich schema and risk metadata from a test plugin", async (context) => {

@@ -462,6 +462,9 @@ code {
 .config-text-field select[multiple] { min-height: 104px; }
 .config-text-field textarea { min-height: 112px; padding: 8px 10px; resize: vertical; }
 .config-text-field > p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.config-secret-state { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.config-secret-state button { padding: 2px 8px; color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--border)); border-radius: 6px; background: transparent; cursor: pointer; }
+.config-secret-state button:disabled { opacity: 0.55; cursor: not-allowed; }
 .config-field-label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .config-field-label code { font-weight: 400; }
 .config-toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 32px; }

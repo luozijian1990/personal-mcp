@@ -82,6 +82,39 @@ test("Console renders accessible controls for the complete config schema", () =>
   assert.match(markup, /data-config-type="path"/);
 });
 
+test("Console shows configured Secret retention and an explicit clear action", () => {
+  const password = fields.find((field) => field.key === "PASSWORD");
+  assert.ok(password);
+  const configured = renderToStaticMarkup(createElement(ConfigFieldEditor, {
+    field: password,
+    pluginId: "schema-test",
+    saving: false,
+    value: "",
+    secretConfigured: true,
+    clearRequested: false,
+    clearSecret: () => undefined,
+    update: () => undefined,
+  }));
+  assert.match(configured, /type="password"/);
+  assert.match(configured, /留空以保留已保存值/);
+  assert.match(configured, /已配置 · 留空会保留/);
+  assert.match(configured, /明确清除/);
+
+  const clearing = renderToStaticMarkup(createElement(ConfigFieldEditor, {
+    field: password,
+    pluginId: "schema-test",
+    saving: false,
+    value: "",
+    secretConfigured: true,
+    clearRequested: true,
+    clearSecret: () => undefined,
+    update: () => undefined,
+  }));
+  assert.match(clearing, /保存后将清除/);
+  assert.match(clearing, /取消清除/);
+  assert.match(clearing, /disabled=""/);
+});
+
 test("Console renders all tool risks and operational safety hints", () => {
   const tools: readonly PersonalMcpToolMetadata[] = [
     { name: "read", title: "Read", risk: "read-only" },
