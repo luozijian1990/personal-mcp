@@ -199,7 +199,6 @@ function Topbar({ state, route, refresh, runHealthCheck, checking }: {
       <div className="topbar-inner">
         <div>
           <Text as="p" className="product-name">{title}</Text>
-          <Text as="p" className="product-context">Personal MCP Console</Text>
         </div>
         <div className="topbar-actions">
           {state.kind === "ready" && (
@@ -334,7 +333,7 @@ function CatalogPage({ data, categoryId, navigate }: {
             <span className="mcp-row-title"><strong>{plugin.name}</strong><PluginHealthBadge health={plugin.health} /><span>{plugin.enabled ? "已开启" : "已关闭"}</span></span>
               <span>{plugin.summary}</span>
             </span>
-            <span className="mcp-meta"><span>{plugin.tools.length} 个工具</span><code>{plugin.path}</code><input type="checkbox" aria-label={`${plugin.name} 启用`} checked={plugin.enabled} onChange={() => void toggle(plugin)} onClick={(event) => event.stopPropagation()} /></span>
+            <span className="mcp-meta"><span>{plugin.tools.length} 个工具</span><code>{plugin.path}</code><label className="config-switch mcp-enabled-switch" onClick={(event) => event.stopPropagation()}><span>{plugin.enabled ? "已开启" : "已关闭"}</span><input type="checkbox" aria-label={`${plugin.name} 启用`} checked={plugin.enabled} onChange={() => void toggle(plugin)} /><span className="config-switch-track"><span /></span></label></span>
             <ChevronRightIcon size={20} />
           </div>
         ))}
