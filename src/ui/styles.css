@@ -319,6 +319,7 @@ code {
 .mcp-row-title { display: flex; align-items: center; gap: 10px; }
 .mcp-row-title strong { font-size: 17px; }
 .mcp-meta { display: grid; gap: 5px; text-align: right; color: var(--muted); font-size: 12px; }
+.mcp-enabled-switch { justify-content: flex-end; }
 .back-button { margin: -12px 0 24px -10px; }
 
 .detail-heading {
