@@ -11,7 +11,7 @@
 ![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-6B5DD3?style=flat-square)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 
-[快速开始](#快速开始) · [可用 MCP](#可用-mcp) · [客户端接入](#客户端接入) · [安全说明](#安全说明)
+[快速开始](#快速开始) · [可用 MCP](#可用-mcp) · [客户端接入](#客户端接入) · [添加新-mcp](#添加新-mcp) · [安全说明](#安全说明)
 
 </div>
 
@@ -26,7 +26,7 @@
 - **可视化配置**：在 Web 控制台中管理插件配置，无需重启 Node.js 进程。
 - **独立运行**：SSH、Prometheus 和 MySQL MCP 均可单独启动。
 - **安全默认值**：限制 loopback 监听；SSH 强制白名单和 host key 校验；敏感运行时配置不进入 Git。
-- **可观测性**：提供状态、健康检查及带 `request_id` 的结构化请求日志。
+- **可观测性**：提供状态、可选的插件健康检查及带 `request_id` 的策略化结构化日志。
 
 ## 可用 MCP
 
@@ -131,12 +131,24 @@ npx @modelcontextprotocol/inspector http://127.0.0.1:3100/ssh/mcp
 
 通过 `PORT` 环境变量可以覆盖默认端口。生产模式运行前需要先执行 `npm run build`。
 
+## 添加新 MCP
+
+普通插件接入只需要新增插件实现，并在 [`src/plugins/catalog.ts`](src/plugins/catalog.ts) 注册一份 `PersonalMcpPluginDefinition`；Gateway、HTTP Runtime 和 UI 主逻辑不需要增加插件分支。
+
+1. 在 `src/plugins/<plugin-id>/` 定义 metadata、配置字段、配置解析/校验和 MCP Server 工厂。
+2. 为每个 Tool 声明 `risk`、确认/默认关闭提示，以及输入和输出日志策略。
+3. 使用 `toolTextResult`、`toolStructuredResult` 和 `toolErrorResult` 返回一致的 MCP 结果，同时保留领域自己的 `outputSchema`。
+4. 如有安全、无副作用的后端探测，实现可选的 `checkHealth(signal)`。
+5. 在 Catalog 注册 Definition，并设置 standalone 默认端口；需要独立启动命令时，再添加一个调用 `startStandalonePlugin` 的薄入口。
+
+完整 Contract、配置生命周期、Secret 语义、Profile 和 Mock Kubernetes 扩展清单见 [Plugin Development](docs/PLUGIN-DEVELOPMENT.md)。
+
 ## 安全说明
 
 - SSH 仅允许访问显式配置的目标，不传递密码、不关闭 host key 检查，也不会自动接受未知指纹。
 - `ssh_execute_command` 默认关闭；启用后，客户端仍需传入 `acknowledgeRemoteChangeRisk: true`。
 - MySQL 的 `execute_sql` 可以修改数据，请使用权限最小化的专用数据库账号。
-- 服务会记录 MCP 请求和响应，SQL、命令或查询结果可能出现在 `logs/mcp.log` 中，请按敏感数据管理该文件。
+- Runtime 按 Tool 的 `full`、`metadata`、`redacted` 或 `none` 策略分别记录输入和输出，并始终对已配置 Secret 做中央脱敏；日志仍应按敏感数据管理。
 - `.runtime-config.json`、日志、构建产物和本地 SSH identity 文件均不会被 Git 跟踪。
 
 ## 开发
@@ -157,7 +169,9 @@ npm start
 ```text
 src/
 ├── apps/       # 网关与独立服务入口
-├── core/       # HTTP、插件注册、日志和运行时配置
+├── core/       # Runtime 启动、HTTP、插件注册、结果、日志和运行时配置
 ├── plugins/    # SSH、Prometheus、MySQL 插件
 └── ui/         # React Web 控制台
 ```
+
+插件作者请从 [Plugin Development](docs/PLUGIN-DEVELOPMENT.md) 开始；本轮框架重构的架构、兼容性和验证记录见 [Framework Refactor Result](HANDOFF-MCP-FRAMEWORK-REFACTOR-RESULT.md)。

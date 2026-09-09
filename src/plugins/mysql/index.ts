@@ -2,6 +2,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 import { createConnection, type Connection } from "mysql2/promise";
 import type { PersonalMcpPlugin, PersonalMcpPluginMetadata } from "../../core/plugin.js";
+import { toolErrorResult, toolTextResult } from "../../core/tool-result.js";
 import { loadMysqlPluginConfig, MYSQL_CONFIG_FIELDS, validateMysqlConfig, type MysqlPluginConfig } from "./config.js";
 
 export interface MysqlExecutor { (config: MysqlPluginConfig, query: string): Promise<string>; }
@@ -22,8 +23,8 @@ export function createMysqlPlugin(options: { config?: MysqlPluginConfig; executo
 function createMysqlServer(config: MysqlPluginConfig, executor: MysqlExecutor): McpServer {
   const server = new McpServer({ name: "mysql_mcp_server", version: "0.1.0" });
   server.registerTool("execute_sql", { title: "Execute an SQL query on MySQL", description: "Execute an SQL query on the configured MySQL server. SELECT and SHOW TABLES results are returned as CSV-like text; other statements are committed and report affected rows.", inputSchema: z.object({ query: z.string().min(1).describe("The SQL query to execute") }), annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } }, async ({ query }) => {
-    try { const text = await executor(config, query); return { content: [{ type: "text" as const, text }] }; }
-    catch (error) { return { content: [{ type: "text" as const, text: `Error executing query: ${error instanceof Error ? error.message : String(error)}` }], isError: true }; }
+    try { return toolTextResult(await executor(config, query)); }
+    catch (error) { return toolErrorResult(error, { prefix: "Error executing query: " }); }
   });
   server.registerResource("mysql-tables", new ResourceTemplate("mysql://{table}/data", {
     list: async () => {

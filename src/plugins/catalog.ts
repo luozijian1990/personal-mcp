@@ -11,22 +11,31 @@ import { createSshConfigManager } from "./ssh/config-manager.js";
 import { loadSshPluginConfig } from "./ssh/config.js";
 import { createSshPlugin, SSH_PLUGIN_METADATA } from "./ssh/index.js";
 
+export const SSH_PLUGIN_DEFINITION: PersonalMcpPluginDefinition = {
+  metadata: SSH_PLUGIN_METADATA,
+  defaultPort: 3101,
+  createPlugin: (environment) => createSshPlugin({ config: loadSshPluginConfig(environment) }),
+  createConfigManager: createSshConfigManager,
+};
+
+export const PROMETHEUS_PLUGIN_DEFINITION: PersonalMcpPluginDefinition = {
+  metadata: PROMETHEUS_PLUGIN_METADATA,
+  defaultPort: 3102,
+  createPlugin: (environment) => createPrometheusPlugin({ config: loadPrometheusPluginConfig(environment) }),
+  createConfigManager: createPrometheusConfigManager,
+};
+
+export const MYSQL_PLUGIN_DEFINITION: PersonalMcpPluginDefinition = {
+  metadata: MYSQL_PLUGIN_METADATA,
+  defaultPort: 3103,
+  createPlugin: (environment) => createMysqlPlugin({ config: loadMysqlPluginConfig(environment) }),
+  createConfigManager: createMysqlConfigManager,
+};
+
 export const pluginDefinitions: readonly PersonalMcpPluginDefinition[] = [
-  {
-    metadata: SSH_PLUGIN_METADATA,
-    createPlugin: (environment) => createSshPlugin({ config: loadSshPluginConfig(environment) }),
-    createConfigManager: createSshConfigManager,
-  },
-  {
-    metadata: PROMETHEUS_PLUGIN_METADATA,
-    createPlugin: (environment) => createPrometheusPlugin({ config: loadPrometheusPluginConfig(environment) }),
-    createConfigManager: createPrometheusConfigManager,
-  },
-  {
-    metadata: MYSQL_PLUGIN_METADATA,
-    createPlugin: (environment) => createMysqlPlugin({ config: loadMysqlPluginConfig(environment) }),
-    createConfigManager: createMysqlConfigManager,
-  },
+  SSH_PLUGIN_DEFINITION,
+  PROMETHEUS_PLUGIN_DEFINITION,
+  MYSQL_PLUGIN_DEFINITION,
 ];
 
 export function initializeBuiltinPluginCatalog(

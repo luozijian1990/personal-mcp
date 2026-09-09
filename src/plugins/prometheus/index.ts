@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 
 import type { PersonalMcpPlugin, PersonalMcpPluginMetadata } from "../../core/plugin.js";
+import { toolStructuredResult } from "../../core/tool-result.js";
 import {
   PROMETHEUS_CONFIG_FIELDS,
   type PrometheusPluginConfig,
@@ -10,7 +11,6 @@ import {
 import {
   queryPrometheus,
   queryPrometheusRange,
-  type PrometheusQueryResult,
 } from "./client.js";
 
 const querySchema = z
@@ -85,10 +85,13 @@ function createPrometheusServer(config: PrometheusPluginConfig): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ query, time }) => toolResult(await queryPrometheus(
-      config,
-      time === undefined ? { query } : { query, time },
-    )),
+    async ({ query, time }) => {
+      const result = await queryPrometheus(
+        config,
+        time === undefined ? { query } : { query, time },
+      );
+      return toolStructuredResult(result, { isError: result.status === "error" });
+    },
   );
 
   server.registerTool(
@@ -117,18 +120,11 @@ function createPrometheusServer(config: PrometheusPluginConfig): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ query, start, end, step }) => toolResult(
-      await queryPrometheusRange(config, { query, start, end, step }),
-    ),
+    async ({ query, start, end, step }) => {
+      const result = await queryPrometheusRange(config, { query, start, end, step });
+      return toolStructuredResult(result, { isError: result.status === "error" });
+    },
   );
 
   return server;
-}
-
-function toolResult(result: PrometheusQueryResult) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-    structuredContent: result,
-    isError: result.status === "error",
-  };
 }

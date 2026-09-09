@@ -2,9 +2,10 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 
 import type { PersonalMcpPlugin, PersonalMcpPluginMetadata } from "../../core/plugin.js";
+import { toolErrorResult, toolStructuredResult } from "../../core/tool-result.js";
 import { SSH_CONFIG_FIELDS, type SshPluginConfig } from "./config.js";
 import { loadSshPluginConfig } from "./config.js";
-import type { SshExecutor, SshRunResult } from "./ssh-runner.js";
+import type { SshExecutor } from "./ssh-runner.js";
 import { runSsh } from "./ssh-runner.js";
 
 const SYSTEM_SNAPSHOT_COMMAND = "id; hostname; date -Is; uname -a; uptime; df -h";
@@ -118,7 +119,7 @@ function createSshServer(config: SshPluginConfig, executor: SshExecutor): McpSer
     },
     async ({ target, timeoutSeconds, maxOutputCharacters }) => {
       const denied = validateTarget(config, target);
-      if (denied !== undefined) return toolError(denied);
+      if (denied !== undefined) return toolErrorResult(denied);
 
       const result = await executor({
         target,
@@ -126,7 +127,7 @@ function createSshServer(config: SshPluginConfig, executor: SshExecutor): McpSer
         timeoutSeconds,
         maxOutputCharacters,
       });
-      return toolResult(result);
+      return toolStructuredResult(result, { isError: result.exitCode !== 0 });
     },
   );
 
@@ -160,9 +161,9 @@ function createSshServer(config: SshPluginConfig, executor: SshExecutor): McpSer
     },
     async ({ target, command, timeoutSeconds, maxOutputCharacters }) => {
       const denied = validateTarget(config, target);
-      if (denied !== undefined) return toolError(denied);
+      if (denied !== undefined) return toolErrorResult(denied);
       if (!config.allowCommands) {
-        return toolError(
+        return toolErrorResult(
           "Arbitrary SSH commands are disabled. Restart with SSH_MCP_ALLOW_COMMANDS=true only when you want to expose this capability.",
         );
       }
@@ -173,7 +174,7 @@ function createSshServer(config: SshPluginConfig, executor: SshExecutor): McpSer
         timeoutSeconds,
         maxOutputCharacters,
       });
-      return toolResult(result);
+      return toolStructuredResult(result, { isError: result.exitCode !== 0 });
     },
   );
 
@@ -188,19 +189,4 @@ function validateTarget(config: SshPluginConfig, target: string): string | undef
     return `SSH target is not allowlisted: ${target}`;
   }
   return undefined;
-}
-
-function toolResult(result: SshRunResult) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-    structuredContent: result,
-    isError: result.exitCode !== 0,
-  };
-}
-
-function toolError(message: string) {
-  return {
-    content: [{ type: "text" as const, text: message }],
-    isError: true,
-  };
 }

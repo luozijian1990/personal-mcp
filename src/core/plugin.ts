@@ -470,6 +470,8 @@ export interface PersonalMcpProfileDefinition {
 /** Declarative registration plus the factories needed to create a runtime plugin. */
 export interface PersonalMcpPluginDefinition {
   readonly metadata: PersonalMcpPluginMetadata;
+  /** Default loopback port used by this Plugin's standalone entry point. */
+  readonly defaultPort: number;
   readonly createPlugin: (environment: NodeJS.ProcessEnv) => PersonalMcpPlugin;
   readonly createConfigManager?: (store: RuntimeConfigStore) => McpConfigManager;
 }

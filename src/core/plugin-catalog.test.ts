@@ -14,11 +14,17 @@ import {
   type PluginConfigValue,
 } from "./plugin.js";
 import { runtimeProfileConfigKey } from "./plugin-profile.js";
+import { startStandalonePlugin } from "./plugin-runtime.js";
 import { createRuntimeConfigStore } from "./runtime-config.js";
 import type { RuntimeConfigStore } from "./runtime-config.js";
 import { startHttpServer } from "./start-http-server.js";
 import { initializePluginCatalog } from "./plugin-catalog.js";
-import { initializeBuiltinPluginCatalog } from "../plugins/catalog.js";
+import {
+  initializeBuiltinPluginCatalog,
+  MYSQL_PLUGIN_DEFINITION,
+  PROMETHEUS_PLUGIN_DEFINITION,
+  SSH_PLUGIN_DEFINITION,
+} from "../plugins/catalog.js";
 
 function testPlugin(id: string): PersonalMcpPlugin {
   return {
@@ -46,6 +52,7 @@ const definition: PersonalMcpPluginDefinition = {
     summary: "replaceable test plugin",
     category: { id: "test", name: "Test", description: "Test plugins" },
   },
+  defaultPort: 3199,
   createPlugin: () => testPlugin("test"),
 };
 
@@ -113,6 +120,28 @@ test("a catalog test plugin is served through the runtime seam", async (context)
   assert.match(await response.text(), /ping/);
 });
 
+test("standalone startup reuses the catalog Runtime and respects its Definition port contract", async (context) => {
+  const runtime = await startStandalonePlugin(definition, {
+    port: 0,
+    store: memoryConfigStore({}),
+    logger: { info: () => undefined, error: () => undefined },
+  });
+  context.after(async () => {
+    runtime.server.close();
+    await once(runtime.server, "close");
+  });
+
+  assert.equal(definition.defaultPort, 3199);
+  assert.deepEqual(runtime.catalog.mounts.map(({ path }) => path), ["/test/mcp"]);
+  const response = await fetch(new URL("/test/mcp", runtime.url), {
+    method: "POST",
+    headers: { accept: "application/json, text/event-stream", "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /ping/);
+});
+
 test("the test plugin can be replaced through the initialized registry", () => {
   const catalog = initializePluginCatalog(createRuntimeConfigStore(), [definition]);
   const registry = new McpRegistry(catalog.mounts);
@@ -124,6 +153,15 @@ test("the test plugin can be replaced through the initialized registry", () => {
 
 test("the built-in catalog preserves plugin endpoints and status metadata", async (context) => {
   const catalog = initializeBuiltinPluginCatalog(createRuntimeConfigStore());
+  assert.deepEqual(
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION]
+      .map(({ metadata, defaultPort }) => ({ id: metadata.id, defaultPort })),
+    [
+      { id: "ssh", defaultPort: 3101 },
+      { id: "prometheus", defaultPort: 3102 },
+      { id: "mysql", defaultPort: 3103 },
+    ],
+  );
   assert.deepEqual(
     catalog.mounts.map(({ path, plugin }) => ({ id: plugin.id, path })),
     [
@@ -169,6 +207,14 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
     { id: "prometheus", name: "Prometheus Metrics", category: "observability" },
     { id: "mysql", name: "MySQL Database", category: "databases" },
   ]);
+  assert.deepEqual(
+    catalog.mounts.map(({ plugin }) => ({ id: plugin.id, tools: plugin.tools.map(({ name }) => name) })),
+    [
+      { id: "ssh", tools: ["ssh_get_system_snapshot", "ssh_execute_command"] },
+      { id: "prometheus", tools: ["prometheus_query", "prometheus_query_range"] },
+      { id: "mysql", tools: ["execute_sql"] },
+    ],
+  );
 });
 
 test("a Mock Plugin supports multiple Profile config lifecycles and health without changing Tool input", async (context) => {
@@ -184,6 +230,7 @@ test("a Mock Plugin supports multiple Profile config lifecycles and health witho
       summary: "Runtime Profile integration test",
       category: { id: "test", name: "Test", description: "Test Plugins" },
     },
+    defaultPort: 3198,
     createPlugin: (environment) => multiProfilePlugin(
       environment.TEST_VALUE ?? "",
       environment.TEST_FALLBACK ?? "",
