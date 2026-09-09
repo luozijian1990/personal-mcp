@@ -74,6 +74,7 @@ Runtime 在状态、配置错误、健康消息和 Tool 日志边界统一脱敏
 Tool handler 使用公共结果 helper：
 
 ```ts
+return toolSuccessResult(contentBlocks);
 return toolTextResult("done");
 return toolErrorResult(error, { prefix: "Query failed: " });
 return toolStructuredResult(domainResult, {
@@ -81,17 +82,17 @@ return toolStructuredResult(domainResult, {
 });
 ```
 
-`toolStructuredResult` 同时返回 JSON text 和 `structuredContent`，但不会改变或扁平化领域对象；Plugin 仍为每个 Tool 定义自己的 `outputSchema`。
+`toolSuccessResult` 表达任意 MCP content blocks 的成功结果，`toolTextResult` 是纯文本快捷方式。`toolStructuredResult` 会验证输入是合法、非循环的 JSON object，同时返回 JSON text 和原始 `structuredContent`，但不会改变或扁平化领域对象；Plugin 仍为每个 Tool 定义自己的 `outputSchema`。
 
 ## Health 与 Profile
 
 健康检查是可选能力。未实现时状态为 `unknown`；实现时返回 `unconfigured`、`healthy`、`degraded` 或 `unhealthy`。Runtime 提供五秒超时和 `AbortSignal`，将异常隔离为当前 Profile 的 unhealthy 状态，不影响 Gateway 或其他 Plugin。
 
-每个 Plugin 自动拥有隐式 `default` Profile，并继续挂载在 `/<plugin-id>/mcp`。部署可以额外传入 `PersonalMcpProfileDefinition` 创建命名 Profile；当前只有 default Profile 对外挂载，因此不要为了 Profile 强制改变现有 Tool 输入。
+每个 Plugin 自动拥有隐式 `default` Profile，并继续挂载在 `/<plugin-id>/mcp`。部署可以通过 `startPluginRuntime({ profileDefinitions })` 传入 `PersonalMcpProfileDefinition` 创建命名 Profile；内置部署在 `src/plugins/catalog.ts` 的 `pluginProfileDefinitions` 中聚合它们。当前只有 default Profile 对外挂载，因此不要为了 Profile 强制改变现有 Tool 输入。
 
 ## Catalog、Gateway 与 standalone
 
-把 Definition 加入 `pluginDefinitions` 后，Gateway 会自动完成：Catalog 初始化、canonical endpoint、Registry、配置 API、状态 metadata、Health、中央日志和 UI 展示。
+每个 Definition 放在对应 Plugin 目录；把它加入中央 `pluginDefinitions` 后，Gateway 会自动完成：Catalog 初始化、canonical endpoint、Registry、配置 API、状态 metadata、Health、中央日志和 UI 展示。standalone 直接导入自身 Definition，不会加载其他 Plugin 模块。
 
 如需独立进程，新增极薄入口：
 
@@ -116,7 +117,7 @@ reportStartedPluginRuntime("standalone Example MCP", runtime);
 修改 src/plugins/catalog.ts
 ```
 
-其中 kubeconfig 可使用 Secret/path metadata，context 和 namespace 使用 select/text，集群使用 Runtime Profile，Health 使用可选 hook，各 Tool 使用现有 risk/logging/result contract。因此普通 Gateway 接入不需要修改 Core、Gateway 或 UI。若同时要求 `npm run dev:kubernetes`，再增加薄 standalone 入口和两个 package scripts。
+其中 kubeconfig 可使用 Secret/path metadata，context 和 namespace 使用 select/text；命名集群 Definition 可加入同一 Catalog 的 `pluginProfileDefinitions`，并由 Gateway 通过正式 Runtime 启动 seam 传入。Health 使用可选 hook，各 Tool 使用现有 risk/logging/result contract。因此普通 Gateway 接入不需要修改 Core、Gateway 或 UI。若同时要求 `npm run dev:kubernetes`，再增加薄 standalone 入口和两个 package scripts。
 
 ## 验证清单
 

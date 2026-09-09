@@ -137,7 +137,7 @@ npx @modelcontextprotocol/inspector http://127.0.0.1:3100/ssh/mcp
 
 1. 在 `src/plugins/<plugin-id>/` 定义 metadata、配置字段、配置解析/校验和 MCP Server 工厂。
 2. 为每个 Tool 声明 `risk`、确认/默认关闭提示，以及输入和输出日志策略。
-3. 使用 `toolTextResult`、`toolStructuredResult` 和 `toolErrorResult` 返回一致的 MCP 结果，同时保留领域自己的 `outputSchema`。
+3. 使用 `toolSuccessResult`、`toolTextResult`、`toolStructuredResult` 和 `toolErrorResult` 返回一致的 MCP 结果，同时保留领域自己的 `outputSchema`。
 4. 如有安全、无副作用的后端探测，实现可选的 `checkHealth(signal)`。
 5. 在 Catalog 注册 Definition，并设置 standalone 默认端口；需要独立启动命令时，再添加一个调用 `startStandalonePlugin` 的薄入口。
 

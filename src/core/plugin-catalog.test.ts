@@ -14,17 +14,21 @@ import {
   type PluginConfigValue,
 } from "./plugin.js";
 import { runtimeProfileConfigKey } from "./plugin-profile.js";
-import { startStandalonePlugin } from "./plugin-runtime.js";
+import {
+  resolveStandalonePort,
+  startPluginRuntime,
+  startStandalonePlugin,
+} from "./plugin-runtime.js";
 import { createRuntimeConfigStore } from "./runtime-config.js";
 import type { RuntimeConfigStore } from "./runtime-config.js";
 import { startHttpServer } from "./start-http-server.js";
 import { initializePluginCatalog } from "./plugin-catalog.js";
 import {
   initializeBuiltinPluginCatalog,
-  MYSQL_PLUGIN_DEFINITION,
-  PROMETHEUS_PLUGIN_DEFINITION,
-  SSH_PLUGIN_DEFINITION,
 } from "../plugins/catalog.js";
+import { MYSQL_PLUGIN_DEFINITION } from "../plugins/mysql/definition.js";
+import { PROMETHEUS_PLUGIN_DEFINITION } from "../plugins/prometheus/definition.js";
+import { SSH_PLUGIN_DEFINITION } from "../plugins/ssh/definition.js";
 
 function testPlugin(id: string): PersonalMcpPlugin {
   return {
@@ -120,7 +124,7 @@ test("a catalog test plugin is served through the runtime seam", async (context)
   assert.match(await response.text(), /ping/);
 });
 
-test("standalone startup reuses the catalog Runtime and respects its Definition port contract", async (context) => {
+test("standalone startup reuses the catalog Runtime", async (context) => {
   const runtime = await startStandalonePlugin(definition, {
     port: 0,
     store: memoryConfigStore({}),
@@ -130,8 +134,6 @@ test("standalone startup reuses the catalog Runtime and respects its Definition 
     runtime.server.close();
     await once(runtime.server, "close");
   });
-
-  assert.equal(definition.defaultPort, 3199);
   assert.deepEqual(runtime.catalog.mounts.map(({ path }) => path), ["/test/mcp"]);
   const response = await fetch(new URL("/test/mcp", runtime.url), {
     method: "POST",
@@ -140,6 +142,16 @@ test("standalone startup reuses the catalog Runtime and respects its Definition 
   });
   assert.equal(response.status, 200);
   assert.match(await response.text(), /ping/);
+});
+
+test("standalone port resolution uses Definition defaults and honors PORT overrides", () => {
+  assert.equal(resolveStandalonePort(definition, {}), 3199);
+  assert.equal(resolveStandalonePort(definition, { PORT: "3200" }), 3200);
+  assert.deepEqual(
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION]
+      .map((pluginDefinition) => resolveStandalonePort(pluginDefinition, {})),
+    [3101, 3102, 3103],
+  );
 });
 
 test("the test plugin can be replaced through the initialized registry", () => {
@@ -252,20 +264,19 @@ test("a Mock Plugin supports multiple Profile config lifecycles and health witho
       "prod",
     ),
   };
-  const catalog = initializePluginCatalog(store, [mockDefinition], [prodProfile]);
-  const registry = new McpRegistry(catalog.mounts);
-  const app = createHttpApp({
-    host: "127.0.0.1",
+  const runtime = await startPluginRuntime({
     serviceName: "profile-test",
+    definitions: [mockDefinition],
+    profileDefinitions: [prodProfile],
+    port: 0,
+    store,
     logger: { info: () => undefined, error: () => undefined },
-    registry,
-    profiles: catalog.profiles,
   });
-  const { server, url } = await startHttpServer(app, "127.0.0.1", 0);
   context.after(async () => {
-    server.close();
-    await once(server, "close");
+    runtime.server.close();
+    await once(runtime.server, "close");
   });
+  const { catalog, registry, url } = runtime;
 
   assert.deepEqual(
     catalog.profiles.map(({ pluginId, profileId, configManager }) => ({

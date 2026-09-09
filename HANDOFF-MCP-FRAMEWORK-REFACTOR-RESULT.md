@@ -24,8 +24,8 @@ Plugin Definition + Catalog
 - Generic Config Manager 统一 revision、时间、串行更新、持久化、reload、`changedKeys`、Secret 语义和原子替换。
 - Runtime Profile Registry 表达隐式 default 与可选命名 Profile。
 - HTTP Runtime 从 metadata 提供状态、配置、Health、中央日志和 MCP 路由，不含插件 ID 分支。
-- `startPluginRuntime` 同时服务 Gateway 与 standalone；各 standalone 入口仅选择 Definition。
-- Tool result helpers 统一 text、error 和 structured 结果约定，并保留领域 Schema。
+- `startPluginRuntime` 同时服务 Gateway 与 standalone，并接受命名 Profile Definitions；各 standalone 入口仅加载自身 Definition。
+- Tool result helpers 统一 success、text、error 和 structured 结果约定，验证 structured JSON object 并保留领域 Schema。
 - Console 从 config、risk、health 和 Profile metadata 渲染，不含插件专用页面。
 
 `http-app.ts` 保留了紧密耦合的 Express 路由装配与 MCP 日志捕获。它仍然完全按 Registry/metadata 迭代，增加第十个 Plugin 不需要修改该文件；当前继续拆成多个路由文件只会增加跨文件追踪成本，因此本轮没有机械拆分。
@@ -50,7 +50,8 @@ Plugin Definition + Catalog
 - `src/core/plugin-runtime.ts`：Gateway/standalone 公共启动。
 - `src/core/tool-result.ts`：Tool text/error/structured result helper。
 - `src/core/http-app.ts`：metadata 驱动的状态、配置、Health、MCP 和日志边界。
-- `src/plugins/catalog.ts`：唯一内置 Plugin 注册表与默认 standalone 端口。
+- `src/plugins/catalog.ts`：唯一内置 Plugin/Profile Definition 聚合表。
+- `src/plugins/*/definition.ts`：各 Plugin 自身的 Definition 和 standalone 默认端口。
 - `src/ui/*`：通用 metadata 控件、Health 和 Profile 展示。
 - `docs/PLUGIN-DEVELOPMENT.md`：新 Plugin 接入 Contract 与清单。
 
@@ -79,7 +80,7 @@ npm run check
 
 覆盖 Registry/Catalog、配置生命周期、Secret、Risk/UI metadata、日志策略、Health、Profile、Tool results、共享 standalone startup、SSH 安全、Prometheus client，以及三个内置 Plugin 的 endpoint、Tool 名与默认端口兼容性。
 
-最终结果：62/62 tests passed。Vite 同时报告一个现有的 bundle 大小提示（主 JS 约 573 kB），不影响构建和测试通过。
+最终结果：64/64 tests passed。Vite 同时报告一个现有的 bundle 大小提示（主 JS 约 573 kB），不影响构建和测试通过。
 
 ## Known Limitations
 
@@ -92,6 +93,6 @@ npm run check
 
 ## Next MCP Readiness
 
-普通 Kubernetes Gateway 接入只需新增 `src/plugins/kubernetes/` 的实现/测试，并在 `src/plugins/catalog.ts` 注册 Definition。kubeconfig、context、namespace、Profile、Health、Risk、Logging 和 Tool result 均已有通用 Contract，不需要修改 `gateway.ts`、`http-app.ts`、Runtime Config 或 UI 主逻辑。
+普通 Kubernetes Gateway 接入只需新增 `src/plugins/kubernetes/` 的实现/测试，并在 `src/plugins/catalog.ts` 注册 Plugin Definition 和需要的命名 Profile Definitions。Gateway 的正式启动 seam 已转交这两组声明；kubeconfig、context、namespace、Profile、Health、Risk、Logging 和 Tool result 均已有通用 Contract，不需要修改 `gateway.ts`、`http-app.ts`、Runtime Config 或 UI 主逻辑。
 
 只有在同时要求专用 `dev:kubernetes` / `start:kubernetes` 命令时，才需额外增加一个调用 `startStandalonePlugin` 的薄入口和 package scripts；这不会改变 Framework。

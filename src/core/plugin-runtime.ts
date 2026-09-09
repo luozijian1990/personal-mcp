@@ -4,7 +4,10 @@ import type { Logger } from "./logger.js";
 import { createHttpApp } from "./http-app.js";
 import { McpRegistry } from "./mcp-registry.js";
 import { initializePluginCatalog, type PluginCatalog } from "./plugin-catalog.js";
-import type { PersonalMcpPluginDefinition } from "./plugin.js";
+import type {
+  PersonalMcpPluginDefinition,
+  PersonalMcpProfileDefinition,
+} from "./plugin.js";
 import { createRuntimeConfigStore, type RuntimeConfigStore } from "./runtime-config.js";
 import { readPort, startHttpServer } from "./start-http-server.js";
 
@@ -18,6 +21,7 @@ export interface StartedPluginRuntime {
 export interface StartPluginRuntimeOptions {
   readonly serviceName: string;
   readonly definitions: readonly PersonalMcpPluginDefinition[];
+  readonly profileDefinitions?: readonly PersonalMcpProfileDefinition[];
   readonly port: number;
   readonly host?: string;
   readonly uiDirectory?: string;
@@ -33,6 +37,7 @@ export async function startPluginRuntime(
   const catalog = initializePluginCatalog(
     options.store ?? createRuntimeConfigStore(),
     options.definitions,
+    options.profileDefinitions,
   );
   const registry = new McpRegistry(catalog.mounts);
   const app = createHttpApp({
@@ -62,11 +67,18 @@ export async function startStandalonePlugin(
   return await startPluginRuntime({
     serviceName: `${definition.metadata.id}-mcp-standalone`,
     definitions: [definition],
-    port: options.port ?? readPort(process.env.PORT, definition.defaultPort),
+    port: options.port ?? resolveStandalonePort(definition),
     ...(options.host === undefined ? {} : { host: options.host }),
     ...(options.store === undefined ? {} : { store: options.store }),
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
+}
+
+export function resolveStandalonePort(
+  definition: PersonalMcpPluginDefinition,
+  environment: NodeJS.ProcessEnv = process.env,
+): number {
+  return readPort(environment.PORT, definition.defaultPort);
 }
 
 export function reportStartedPluginRuntime(
