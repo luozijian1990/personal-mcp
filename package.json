@@ -20,7 +20,9 @@
     "start:prometheus": "node dist/apps/prometheus-standalone.js",
     "dev:mysql": "tsx src/apps/mysql-standalone.ts",
     "start:mysql": "node dist/apps/mysql-standalone.js",
-    "test": "node --test dist/core/*.test.js dist/plugins/*/*.test.js dist/ui/*.test.js"
+    "test": "node --test dist/core/*.test.js dist/plugins/*/*.test.js dist/ui/*.test.js",
+    "dev:jenkins": "tsx src/apps/jenkins-standalone.ts",
+    "start:jenkins": "node dist/apps/jenkins-standalone.js"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "2.0.0",
