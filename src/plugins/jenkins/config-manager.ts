@@ -1,0 +1,9 @@
+import type { McpConfigManager, PluginConfigValue } from "../../core/plugin.js";
+import { createGenericConfigManager } from "../../core/plugin-config-manager.js";
+import type { RuntimeConfigStore } from "../../core/runtime-config.js";
+import { createJenkinsPlugin } from "./index.js";
+import { JENKINS_CONFIG_FIELDS, loadJenkinsPluginConfig, type JenkinsPluginConfig } from "./config.js";
+export function createJenkinsConfigManager(store: RuntimeConfigStore): McpConfigManager { return createGenericConfigManager({ pluginId: "jenkins", fields: JENKINS_CONFIG_FIELDS, store, load: loadJenkinsPluginConfig, values: c => ({ JENKINS_URL: c.url, JENKINS_USER: c.user, JENKINS_TOKEN: c.token }), parse: (input, current) => parse({ ...current, ...(isRecord(input) && isRecord(input.values) ? input.values : isRecord(input) ? input : {}) } as Record<string, PluginConfigValue>), environment: (v,b) => ({ ...b, ...Object.fromEntries(Object.entries(v).map(([k,x]) => [k,String(x)])) }), persist: v => ({ JENKINS_URL: String(v.JENKINS_URL), JENKINS_USER: String(v.JENKINS_USER), JENKINS_TOKEN: String(v.JENKINS_TOKEN) }), validate: validateConfig, createPlugin: c => createJenkinsPlugin({ config: c }) }); }
+function isRecord(v: unknown): v is Record<string, unknown> { return typeof v === "object" && v !== null && !Array.isArray(v); }
+function parse(v: Record<string, PluginConfigValue>): Record<string,string> { for (const k of ["JENKINS_URL","JENKINS_USER","JENKINS_TOKEN"]) if (typeof v[k] !== "string") throw new Error(`${k} must be a string`); return v as Record<string,string>; }
+function validateConfig(c: JenkinsPluginConfig): void { if (!c.url) throw new Error("JENKINS_URL must be configured"); try { const u = new URL(c.url); if (!/^https?:$/.test(u.protocol)) throw 0; } catch { throw new Error("JENKINS_URL must be a valid HTTP or HTTPS URL"); } if (!c.user || !c.token) throw new Error("JENKINS_USER and JENKINS_TOKEN must be configured"); }
