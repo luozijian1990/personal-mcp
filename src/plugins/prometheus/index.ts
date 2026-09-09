@@ -60,6 +60,12 @@ export function createPrometheusPlugin(
       { name: "prometheus_query_range", title: "区间查询", risk: "read-only", logging: { input: "full", output: "metadata" } },
     ],
     config: { fields: PROMETHEUS_CONFIG_FIELDS },
+    checkHealth: async (signal) => {
+      if (!config.url) return { state: "unconfigured", message: "Prometheus URL is not configured" };
+      const response = await fetch(`${config.url.replace(/\/$/, "")}/-/healthy`, { signal });
+      if (!response.ok) return { state: "unhealthy", message: `Prometheus returned HTTP ${response.status}` };
+      return { state: "healthy", message: "Prometheus is healthy" };
+    },
     createServer: () => createPrometheusServer(config),
   };
 }

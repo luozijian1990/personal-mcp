@@ -87,10 +87,12 @@ type ClientTab = "codex" | "claude";
 
 export function App() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [checking, setChecking] = useState(false);
   const [route, setRoute] = useState<Route>(() => readRoute());
   const [copied, setCopied] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setChecking(true);
     try {
       const response = await fetch("/api/status", { headers: { accept: "application/json" } });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -99,6 +101,8 @@ export function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "未知错误";
       setState({ kind: "error", message });
+    } finally {
+      setChecking(false);
     }
   }, []);
 
@@ -127,7 +131,7 @@ export function App() {
     <div className="app-shell">
       <IconNavigation route={route} navigate={navigate} />
       <main className="main-content">
-        <Topbar state={state} route={route} refresh={refresh} />
+        <Topbar state={state} route={route} refresh={refresh} checking={checking} />
         {state.kind === "loading" && <LoadingState />}
         {state.kind === "error" && <ErrorState message={state.message} retry={refresh} />}
         {state.kind === "ready" && (
@@ -176,10 +180,11 @@ function IconNavigation({ route, navigate }: {
   );
 }
 
-function Topbar({ state, route, refresh }: {
+function Topbar({ state, route, refresh, checking }: {
   readonly state: LoadState;
   readonly route: Route;
   readonly refresh: () => Promise<void>;
+  readonly checking: boolean;
 }) {
   const title = route.page === "home" ? "首页" : route.page === "catalog" ? "MCP 明细" : "MCP 接入";
   return (
@@ -198,6 +203,9 @@ function Topbar({ state, route, refresh }: {
           <Tooltip text="刷新服务状态">
             <IconButton aria-label="刷新服务状态" icon={SyncIcon} variant="invisible" onClick={() => void refresh()} />
           </Tooltip>
+          <Button leadingVisual={checking ? Spinner : SyncIcon} disabled={checking} onClick={() => void refresh()}>
+            {checking ? "检查中…" : "执行健康检查"}
+          </Button>
         </div>
       </div>
     </header>
