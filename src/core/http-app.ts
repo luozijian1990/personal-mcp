@@ -11,6 +11,7 @@ import { createLogger } from "./logger.js";
 import type { Logger } from "./logger.js";
 import { limitLogValue } from "./log-value.js";
 import { McpRegistry } from "./mcp-registry.js";
+import { resolvePluginHealth } from "./plugin-health.js";
 import type {
   McpConfigManager,
   PersonalMcpPlugin,
@@ -86,14 +87,15 @@ export function createHttpApp(options: HttpAppOptions): Express {
     }
   };
 
-  app.get("/api/status", (_request, response) => {
-    response.json({
-      service: options.serviceName,
-      status: "online",
-      auth: "none",
-      bind: options.host,
-      transport: "Streamable HTTP",
-      endpoints: registry.list().map(({ path, plugin }) => ({
+  app.get("/api/status", async (_request, response) => {
+    const endpoints = await Promise.all(registry.list().map(async ({ path, plugin }) => {
+      const health = await resolvePluginHealth(plugin, {
+        onFailure: (error) => safeLog("error", "plugin.health_check_failed", {
+          plugin: plugin.id,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+      return {
         id: plugin.id,
         name: plugin.displayName,
         summary: plugin.summary,
@@ -101,7 +103,16 @@ export function createHttpApp(options: HttpAppOptions): Express {
         path,
         tools: plugin.tools,
         configurable: configManagers.has(plugin.id),
-      })),
+        health: redactHealthMessage(health, redactLogValue),
+      };
+    }));
+    response.json({
+      service: options.serviceName,
+      status: "online",
+      auth: "none",
+      bind: options.host,
+      transport: "Streamable HTTP",
+      endpoints,
       configs: [...configManagers.values()].map((manager) => manager.getSnapshot()),
     });
   });
@@ -354,6 +365,15 @@ function parsePayload(value: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function redactHealthMessage(
+  health: import("./plugin.js").PluginHealth,
+  redact: (value: unknown) => unknown,
+): import("./plugin.js").PluginHealth {
+  if (health.message === undefined) return health;
+  const message = redact(health.message);
+  return { ...health, message: typeof message === "string" ? message : "[REDACTED]" };
 }
 
 function isLoopbackHost(host: string): boolean {

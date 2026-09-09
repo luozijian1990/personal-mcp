@@ -399,11 +399,27 @@ export interface PersonalMcpToolMetadata {
   readonly logging?: ToolLoggingPolicies;
 }
 
+export type PluginHealthState =
+  | "unknown"
+  | "unconfigured"
+  | "healthy"
+  | "degraded"
+  | "unhealthy";
+
+export interface PluginHealth {
+  readonly state: PluginHealthState;
+  readonly message?: string;
+  readonly latencyMs?: number;
+  readonly checkedAt?: string;
+}
+
 export interface PersonalMcpPlugin extends PersonalMcpPluginMetadata {
   readonly tools: readonly PersonalMcpToolMetadata[];
   readonly config?: {
     readonly fields: readonly PluginConfigField[];
   };
+  /** Optional, side-effect-free backend check. Registration does not depend on its result. */
+  checkHealth?(signal: AbortSignal): PluginHealth | Promise<PluginHealth>;
   createServer(): McpServer;
 }
 

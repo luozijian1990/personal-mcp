@@ -163,6 +163,86 @@ test("unauthenticated app refuses a non-loopback bind", () => {
   );
 });
 
+test("status exposes optional Plugin health and isolates a failed check", async (context) => {
+  const serverSource = createSshPlugin({
+    config: { allowedTargets: new Set(), allowCommands: false, ports: [] },
+  });
+  const plugin = (
+    id: string,
+    checkHealth?: PersonalMcpPlugin["checkHealth"],
+  ): PersonalMcpPlugin => ({
+    id,
+    displayName: id,
+    summary: "health integration test",
+    category: { id: "test", name: "Test", description: "Test Plugins" },
+    tools: [],
+    createServer: serverSource.createServer,
+    ...(checkHealth === undefined ? {} : { checkHealth }),
+  });
+  const logs: Array<{ event: string; fields?: Readonly<Record<string, unknown>> }> = [];
+  const app = createHttpApp({
+    host: "127.0.0.1",
+    serviceName: "health-test",
+    logger: {
+      info: (event, fields) => logs.push({ event, ...(fields === undefined ? {} : { fields }) }),
+      error: (event, fields) => logs.push({ event, ...(fields === undefined ? {} : { fields }) }),
+    },
+    mounts: [
+      { path: "/unknown/mcp", plugin: plugin("unknown") },
+      { path: "/unconfigured/mcp", plugin: plugin("unconfigured", async () => ({ state: "unconfigured", message: "Add backend settings" })) },
+      { path: "/healthy/mcp", plugin: plugin("healthy", async () => ({ state: "healthy", message: "Backend available" })) },
+      { path: "/degraded/mcp", plugin: plugin("degraded", async () => ({
+        state: "degraded",
+        message: "Backend is responding slowly",
+        latencyMs: 125.5,
+        checkedAt: "2026-09-09T01:02:03.000Z",
+      })) },
+      { path: "/failed/mcp", plugin: plugin("failed", async () => { throw new Error("backend unavailable"); }) },
+      { path: "/extra-data/mcp", plugin: plugin("extra-data", async () => ({
+        state: "healthy",
+        unexpectedSecret: "must-not-reach-status",
+      } as import("./plugin.js").PluginHealth & { readonly unexpectedSecret: string })) },
+    ],
+  });
+  const { server, url } = await startHttpServer(app, "127.0.0.1", 0);
+  context.after(async () => {
+    server.close();
+    await once(server, "close");
+  });
+
+  const response = await fetch(new URL("/api/status", url));
+  const responseText = await response.text();
+  assert.doesNotMatch(responseText, /must-not-reach-status|unexpectedSecret/);
+  const status = JSON.parse(responseText) as {
+    endpoints: Array<{ id: string; health: import("./plugin.js").PluginHealth }>;
+  };
+  assert.equal(response.status, 200);
+  assert.deepEqual(status.endpoints.find(({ id }) => id === "unknown")?.health, { state: "unknown" });
+  const unconfigured = status.endpoints.find(({ id }) => id === "unconfigured")?.health;
+  assert.equal(unconfigured?.state, "unconfigured");
+  assert.equal(unconfigured?.message, "Add backend settings");
+  const healthy = status.endpoints.find(({ id }) => id === "healthy")?.health;
+  assert.equal(healthy?.state, "healthy");
+  assert.equal(healthy?.message, "Backend available");
+  assert.equal(typeof healthy?.latencyMs, "number");
+  assert.ok(healthy?.checkedAt !== undefined);
+  assert.deepEqual(status.endpoints.find(({ id }) => id === "degraded")?.health, {
+    state: "degraded",
+    message: "Backend is responding slowly",
+    latencyMs: 125.5,
+    checkedAt: "2026-09-09T01:02:03.000Z",
+  });
+  const failed = status.endpoints.find(({ id }) => id === "failed")?.health;
+  assert.equal(failed?.state, "unhealthy");
+  assert.equal(failed?.message, "Health check failed");
+  assert.ok(logs.some((entry) => entry.event === "plugin.health_check_failed"
+    && entry.fields?.plugin === "failed"));
+
+  const gatewayHealth = await fetch(new URL("/health", url));
+  assert.equal(gatewayHealth.status, 200);
+  assert.deepEqual(await gatewayHealth.json(), { status: "ok" });
+});
+
 test("app enforces the /<plugin-id>/mcp endpoint convention", () => {
   assert.throws(
     () => createHttpApp({

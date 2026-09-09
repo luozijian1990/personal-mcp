@@ -22,7 +22,6 @@ import {
   Flash,
   Heading,
   IconButton,
-  Label,
   Spinner,
   Text,
   Tooltip,
@@ -31,9 +30,11 @@ import type {
   PersonalMcpToolMetadata,
   PluginConfigSnapshot,
   PluginConfigValue,
+  PluginHealth,
 } from "../core/plugin.js";
 import { groupConfigFields, toggleSecretClearIntent } from "./config-metadata.js";
 import { ConfigFieldEditor, ToolMetadataRow } from "./MetadataControls.js";
+import { PluginHealthBadge, PluginHealthDetails } from "./PluginHealthStatus.js";
 
 type ToolStatus = PersonalMcpToolMetadata;
 
@@ -51,6 +52,7 @@ interface PluginStatus {
   readonly path: string;
   readonly tools: readonly ToolStatus[];
   readonly configurable: boolean;
+  readonly health: PluginHealth;
 }
 
 interface ServiceStatus {
@@ -305,7 +307,7 @@ function CatalogPage({ data, categoryId, navigate }: {
           <button className="mcp-row" key={plugin.id} onClick={() => navigate({ page: "detail", pluginId: plugin.id })}>
             <span className="plugin-icon"><TerminalIcon size={22} /></span>
             <span className="mcp-row-main">
-              <span className="mcp-row-title"><strong>{plugin.name}</strong><Label variant="success">运行中</Label></span>
+              <span className="mcp-row-title"><strong>{plugin.name}</strong><PluginHealthBadge health={plugin.health} /></span>
               <span>{plugin.summary}</span>
             </span>
             <span className="mcp-meta"><span>{plugin.tools.length} 个工具</span><code>{plugin.path}</code></span>
@@ -349,7 +351,7 @@ function PluginDetail({ plugin, data, copied, copy, navigate }: {
       <section className="detail-heading">
         <div className="plugin-icon large"><TerminalIcon size={28} /></div>
         <div>
-          <div className="detail-title-line"><Heading as="h1">{plugin.name}</Heading><Label variant="success">运行中</Label></div>
+          <div className="detail-title-line"><Heading as="h1">{plugin.name}</Heading><PluginHealthBadge health={plugin.health} /></div>
           <Text as="p">{plugin.summary}</Text>
         </div>
       </section>
@@ -384,6 +386,7 @@ function PluginDetail({ plugin, data, copied, copy, navigate }: {
 
         <aside className="detail-aside">
           <Heading as="h2">服务信息</Heading>
+          <PluginHealthDetails health={plugin.health} />
           <ServiceFact icon={TerminalIcon} label="分类" value={plugin.category.name} />
           <ServiceFact icon={ServerIcon} label="传输" value={data.transport} />
           <ServiceFact icon={KeyIcon} label="认证" value="暂未启用" warning />
