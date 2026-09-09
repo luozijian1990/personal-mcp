@@ -119,6 +119,14 @@ reportStartedPluginRuntime("standalone Example MCP", runtime);
 
 其中 kubeconfig 可使用 Secret/path metadata，context 和 namespace 使用 select/text；命名集群 Definition 可加入同一 Catalog 的 `pluginProfileDefinitions`，并由 Gateway 通过正式 Runtime 启动 seam 传入。Health 使用可选 hook，各 Tool 使用现有 risk/logging/result contract。因此普通 Gateway 接入不需要修改 Core、Gateway 或 UI。若同时要求 `npm run dev:kubernetes`，再增加薄 standalone 入口和两个 package scripts。
 
+## 交付与文档一致性
+
+每个新增 Plugin 都必须完成以下检查，避免只注册 Gateway 而遗漏独立运行或使用说明：
+
+- 如果需求包含独立运行，必须新增 `src/apps/<plugin-id>-standalone.ts`，调用 `startStandalonePlugin`，并在 `package.json` 同时加入 `dev:<plugin-id>` 与 `start:<plugin-id>` 脚本；Definition 的 `defaultPort`、启动日志和文档中的 endpoint 必须一致。
+- 必须新增 `src/plugins/<plugin-id>/README.md`，参照现有 Plugin README 的统一结构：顶部图标和返回项目首页链接、插件简介、工具/资源表格、配置表格、网关与独立启动方式、endpoint、调用示例和安全边界。新增或调整配置、Tool、端口和限制时，代码与 README 必须同步更新。
+- 根 README 只说明通用使用方式；当前 Plugin 清单和能力以 Web 控制台为准，不在根 README 维护固定 endpoint 列表。
+
 ## 验证清单
 
 - Catalog 能初始化 Definition，endpoint 为 `/<id>/mcp`。
