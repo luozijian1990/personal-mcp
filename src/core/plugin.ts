@@ -1,5 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { RuntimeConfigStore, RuntimeConfigValues } from "./runtime-config.js";
+import {
+  DEFAULT_PROFILE_ID,
+  runtimeProfileConfigValues,
+  runtimeProfileEnvironment,
+} from "./plugin-profile.js";
 
 export type PluginConfigValue = string | number | boolean | readonly string[];
 
@@ -70,6 +75,8 @@ export type PluginConfigField = PluginConfigFieldBase & (
 
 export interface PluginConfigSnapshot {
   readonly pluginId: string;
+  /** Runtime profile that owns this configuration. Existing plugins use `default`. */
+  readonly profileId?: string;
   readonly fields: readonly PluginConfigField[];
   /** Secret keys are omitted from values; only their configured state is public. */
   readonly secretStates?: Readonly<Record<string, { readonly configured: boolean }>>;
@@ -86,6 +93,7 @@ export interface PluginConfigUpdate {
 
 export interface McpConfigManager {
   readonly pluginId: string;
+  readonly profileId?: string;
   getSnapshot(): PluginConfigSnapshot;
   update(input: unknown): Promise<PluginConfigUpdate>;
   reload(): Promise<PluginConfigUpdate>;
@@ -98,6 +106,8 @@ export interface McpConfigManager {
 /** Hooks used by plugins to provide parsing/validation while the framework owns lifecycle state. */
 export interface GenericConfigLifecycleOptions<Config> {
   readonly pluginId: string;
+  /** Optional runtime profile identifier; omitted means the implicit default profile. */
+  readonly profileId?: string;
   readonly fields: readonly PluginConfigField[];
   readonly store: RuntimeConfigStore;
   readonly load: (environment: NodeJS.ProcessEnv) => Config;
@@ -123,10 +133,16 @@ export function createGenericConfigManager<Config>(
   let replaceRuntime: ((plugin: PersonalMcpPlugin) => void) | undefined;
   let currentPrivateValues: Readonly<Record<string, PluginConfigValue>> | undefined;
   let operations = Promise.resolve();
+  const runtimeEnvironment = () => runtimeProfileEnvironment(
+    options.store.environment(),
+    options.pluginId,
+    options.profileId ?? DEFAULT_PROFILE_ID,
+    options.fields.map((field) => field.key),
+  );
   const loadPrivateValues = (): Readonly<Record<string, PluginConfigValue>> => {
     if (currentPrivateValues !== undefined) return currentPrivateValues;
     try {
-      return options.values(options.load(options.store.environment()));
+      return options.values(options.load(runtimeEnvironment()));
     } catch (error) {
       if (secretFields.length > 0) {
         throw new Error(`Unable to load configuration for ${options.pluginId}`);
@@ -138,6 +154,7 @@ export function createGenericConfigManager<Config>(
     const privateValues = loadPrivateValues();
     return {
       pluginId: options.pluginId,
+      profileId: options.profileId ?? DEFAULT_PROFILE_ID,
       fields: publicFields,
       values: publicConfigValues(privateValues, secretKeys),
       secretStates: secretConfigStates(privateValues, secretFields),
@@ -147,7 +164,7 @@ export function createGenericConfigManager<Config>(
   };
   const run = async (input?: unknown, reload = false): Promise<PluginConfigUpdate> => {
     const beforePrivateValues = loadPrivateValues();
-    const base = options.store.environment();
+    const base = runtimeEnvironment();
     const secretCandidates = new Set(
       secretValuesForRedaction(beforePrivateValues, input, secretFields),
     );
@@ -186,7 +203,11 @@ export function createGenericConfigManager<Config>(
         const nextEnvironment = options.environment(nextValues, base);
         const persisted = options.persist?.(nextValues, nextEnvironment)
           ?? Object.fromEntries(options.fields.map((field) => [field.key, nextEnvironment[field.key] ?? ""]));
-        await options.store.update(persisted);
+        await options.store.update(runtimeProfileConfigValues(
+          persisted,
+          options.pluginId,
+          options.profileId ?? DEFAULT_PROFILE_ID,
+        ));
       }
       replaceRuntime?.(plugin);
       currentPlugin = plugin;
@@ -206,7 +227,7 @@ export function createGenericConfigManager<Config>(
     operations = result.then(() => undefined, () => undefined);
     return result;
   };
-  return { pluginId: options.pluginId, getSnapshot: snapshot,
+  return { pluginId: options.pluginId, profileId: options.profileId ?? DEFAULT_PROFILE_ID, getSnapshot: snapshot,
     redactSecrets: (value) => redactSecretData(
       value,
       secretValuesForRedaction(loadPrivateValues(), undefined, secretFields),
@@ -421,6 +442,29 @@ export interface PersonalMcpPlugin extends PersonalMcpPluginMetadata {
   /** Optional, side-effect-free backend check. Registration does not depend on its result. */
   checkHealth?(signal: AbortSignal): PluginHealth | Promise<PluginHealth>;
   createServer(): McpServer;
+}
+
+/** One runtime configuration/health instance of a Plugin. Only `default` is mounted today. */
+export interface PersonalMcpProfile {
+  readonly pluginId: string;
+  readonly profileId: string;
+  readonly plugin: PersonalMcpPlugin;
+  readonly configManager?: McpConfigManager;
+}
+
+/**
+ * Runtime-owned declaration for an additional named Profile.
+ *
+ * This deliberately lives beside, rather than inside, the Plugin Definition: a deployment may
+ * create any number of connections without changing the Plugin's catalog metadata or Tool schema.
+ */
+export interface PersonalMcpProfileDefinition {
+  readonly pluginId: string;
+  readonly profileId: string;
+  /** Declared configuration keys to isolate when no Config Manager supplies field metadata. */
+  readonly configKeys?: readonly string[];
+  readonly createPlugin: (environment: NodeJS.ProcessEnv) => PersonalMcpPlugin;
+  readonly createConfigManager?: (store: RuntimeConfigStore) => McpConfigManager;
 }
 
 /** Declarative registration plus the factories needed to create a runtime plugin. */

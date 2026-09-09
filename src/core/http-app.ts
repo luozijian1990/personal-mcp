@@ -15,8 +15,10 @@ import { resolvePluginHealth } from "./plugin-health.js";
 import type {
   McpConfigManager,
   PersonalMcpPlugin,
+  PersonalMcpProfile,
   ToolLoggingPolicy,
 } from "./plugin.js";
+import { DEFAULT_PROFILE_ID, RuntimeProfileRegistry } from "./plugin-profile.js";
 
 const DEFAULT_TOOL_LOGGING_POLICY: ToolLoggingPolicy = "metadata";
 const MAX_LOG_PAYLOAD_CHARACTERS = 100_000;
@@ -28,6 +30,8 @@ export interface HttpAppOptions {
   readonly logger?: Logger;
   readonly registry?: McpRegistry;
   readonly configManagers?: readonly McpConfigManager[];
+  /** Runtime Profiles. Omit for the legacy one-default-Profile-per-Plugin behavior. */
+  readonly profiles?: readonly PersonalMcpProfile[];
   readonly mounts?: readonly {
     readonly path: string;
     readonly plugin: PersonalMcpPlugin;
@@ -41,24 +45,18 @@ export function createHttpApp(options: HttpAppOptions): Express {
     );
   }
   const registry = options.registry ?? new McpRegistry(options.mounts ?? []);
-  const configManagers = new Map(
-    (options.configManagers ?? []).map((manager) => [manager.pluginId, manager]),
+  const runtimeProfiles = new RuntimeProfileRegistry(
+    registry,
+    options.profiles,
+    options.configManagers,
   );
-  for (const manager of configManagers.values()) {
-    if (registry.get(manager.pluginId) === undefined) {
-      throw new Error(`Configuration manager has no mounted MCP plugin: ${manager.pluginId}`);
-    }
-    manager.setRuntimeReplacement?.((plugin) => registry.replace(manager.pluginId, plugin));
-  }
-  if (configManagers.size !== (options.configManagers ?? []).length) {
-    throw new Error("Duplicate MCP configuration manager");
-  }
+  const configManagers = runtimeProfiles.configManagers();
 
   const app = createMcpExpressApp({ host: options.host });
   const logger = options.logger ?? createLogger({ serviceName: options.serviceName });
   const redactLogValue = (value: unknown): unknown => {
     let redacted = value;
-    for (const manager of configManagers.values()) {
+    for (const manager of configManagers) {
       try {
         redacted = manager.redactSecrets?.(redacted) ?? redacted;
       } catch {
@@ -89,12 +87,24 @@ export function createHttpApp(options: HttpAppOptions): Express {
 
   app.get("/api/status", async (_request, response) => {
     const endpoints = await Promise.all(registry.list().map(async ({ path, plugin }) => {
-      const health = await resolvePluginHealth(plugin, {
-        onFailure: (error) => safeLog("error", "plugin.health_check_failed", {
-          plugin: plugin.id,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      });
+      const profiles = runtimeProfiles.list(plugin.id);
+      const profileStatuses = await Promise.all(profiles.map(async (profile) => {
+        const currentPlugin = profile.profileId === DEFAULT_PROFILE_ID
+          ? registry.get(profile.pluginId)?.plugin ?? profile.plugin
+          : profile.plugin;
+        return {
+          id: profile.profileId,
+          configurable: profile.configManager !== undefined,
+          health: redactHealthMessage(await resolvePluginHealth(currentPlugin, {
+            onFailure: (error) => safeLog("error", "plugin.health_check_failed", {
+              plugin: plugin.id,
+              profile: profile.profileId,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          }), redactLogValue),
+        };
+      }));
+      const defaultProfile = profileStatuses.find(({ id }) => id === DEFAULT_PROFILE_ID);
       return {
         id: plugin.id,
         name: plugin.displayName,
@@ -102,8 +112,9 @@ export function createHttpApp(options: HttpAppOptions): Express {
         category: plugin.category,
         path,
         tools: plugin.tools,
-        configurable: configManagers.has(plugin.id),
-        health: redactHealthMessage(health, redactLogValue),
+        configurable: defaultProfile?.configurable ?? false,
+        health: defaultProfile?.health ?? { state: "unknown" as const },
+        profiles: profileStatuses,
       };
     }));
     response.json({
@@ -113,23 +124,25 @@ export function createHttpApp(options: HttpAppOptions): Express {
       bind: options.host,
       transport: "Streamable HTTP",
       endpoints,
-      configs: [...configManagers.values()].map((manager) => manager.getSnapshot()),
+      configs: configManagers.map((manager) => manager.getSnapshot()),
     });
   });
 
   app.get("/api/config", (_request, response) => {
-    response.json({ configs: [...configManagers.values()].map((manager) => manager.getSnapshot()) });
+    response.json({ configs: configManagers.map((manager) => manager.getSnapshot()) });
   });
 
   const reloadConfig = async (
     pluginId: string,
+    profileId: string,
     response: Response,
     operation: "update" | "reload",
     input?: unknown,
   ) => {
-    const manager = configManagers.get(pluginId);
+    const manager = runtimeProfiles.getConfigManager(pluginId, profileId);
     if (manager === undefined) {
-      response.status(404).json({ error: `MCP configuration not found: ${pluginId}` });
+      const target = profileId === DEFAULT_PROFILE_ID ? pluginId : `${pluginId}/${profileId}`;
+      response.status(404).json({ error: `MCP configuration not found: ${target}` });
       return;
     }
     try {
@@ -138,6 +151,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
         : await manager.reload();
       safeLog("info", "config.updated", {
         plugin: pluginId,
+        profile: profileId,
         changed_keys: update.changedKeys,
         operation,
         revision: update.snapshot.revision,
@@ -145,13 +159,13 @@ export function createHttpApp(options: HttpAppOptions): Express {
       response.json({ config: update.snapshot, reloaded: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      safeLog("error", "config.update_failed", { plugin: pluginId, operation, error: message });
+      safeLog("error", "config.update_failed", { plugin: pluginId, profile: profileId, operation, error: message });
       response.status(400).json({ error: message, reloaded: false });
     }
   };
 
   app.get("/api/config/:pluginId", (request, response) => {
-    const manager = configManagers.get(request.params.pluginId);
+    const manager = runtimeProfiles.getConfigManager(request.params.pluginId);
     if (manager === undefined) {
       response.status(404).json({ error: `MCP configuration not found: ${request.params.pluginId}` });
       return;
@@ -160,11 +174,33 @@ export function createHttpApp(options: HttpAppOptions): Express {
   });
 
   app.put("/api/config/:pluginId", (request, response) => {
-    void reloadConfig(request.params.pluginId, response, "update", request.body);
+    void reloadConfig(request.params.pluginId, DEFAULT_PROFILE_ID, response, "update", request.body);
   });
 
   app.post("/api/config/:pluginId/reload", (request, response) => {
-    void reloadConfig(request.params.pluginId, response, "reload");
+    void reloadConfig(request.params.pluginId, DEFAULT_PROFILE_ID, response, "reload");
+  });
+
+  app.get("/api/config/:pluginId/profiles/:profileId", (request, response) => {
+    const manager = runtimeProfiles.getConfigManager(
+      request.params.pluginId,
+      request.params.profileId,
+    );
+    if (manager === undefined) {
+      response.status(404).json({
+        error: `MCP configuration not found: ${request.params.pluginId}/${request.params.profileId}`,
+      });
+      return;
+    }
+    response.json({ config: manager.getSnapshot() });
+  });
+
+  app.put("/api/config/:pluginId/profiles/:profileId", (request, response) => {
+    void reloadConfig(request.params.pluginId, request.params.profileId, response, "update", request.body);
+  });
+
+  app.post("/api/config/:pluginId/profiles/:profileId/reload", (request, response) => {
+    void reloadConfig(request.params.pluginId, request.params.profileId, response, "reload");
   });
 
   const healthHandler = (_request: Request, response: Response) => {

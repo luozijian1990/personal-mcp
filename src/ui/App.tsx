@@ -53,6 +53,11 @@ interface PluginStatus {
   readonly tools: readonly ToolStatus[];
   readonly configurable: boolean;
   readonly health: PluginHealth;
+  readonly profiles?: readonly {
+    readonly id: string;
+    readonly configurable: boolean;
+    readonly health: PluginHealth;
+  }[];
 }
 
 interface ServiceStatus {

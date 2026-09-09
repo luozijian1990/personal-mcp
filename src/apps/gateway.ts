@@ -17,7 +17,7 @@ const app = createHttpApp({
   serviceName: "personal-mcp-gateway",
   uiDirectory,
   registry,
-  configManagers: catalog.configManagers,
+  profiles: catalog.profiles,
 });
 
 const { url } = await startHttpServer(app, host, port);
