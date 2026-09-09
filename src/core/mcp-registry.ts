@@ -1,4 +1,5 @@
 import type { PersonalMcpPlugin } from "./plugin.js";
+import type { RuntimeConfigStore } from "./runtime-config.js";
 
 export interface McpMount {
   readonly path: string;
@@ -6,10 +7,10 @@ export interface McpMount {
 }
 
 export class McpRegistry {
-  private readonly entries = new Map<string, { readonly path: string; plugin: PersonalMcpPlugin }>();
+  private readonly entries = new Map<string, { readonly path: string; plugin: PersonalMcpPlugin; enabled: boolean }>();
   private readonly paths = new Set<string>();
 
-  constructor(mounts: readonly McpMount[]) {
+  constructor(mounts: readonly McpMount[], store?: RuntimeConfigStore) {
     for (const mount of mounts) {
       if (this.entries.has(mount.plugin.id)) {
         throw new Error(`Duplicate MCP plugin id: ${mount.plugin.id}`);
@@ -23,13 +24,21 @@ export class McpRegistry {
           `Invalid MCP mount path for ${mount.plugin.id}: expected ${expectedPath}, received ${mount.path}`,
         );
       }
-      this.entries.set(mount.plugin.id, { path: mount.path, plugin: mount.plugin });
+      this.entries.set(mount.plugin.id, { path: mount.path, plugin: mount.plugin, enabled: store?.environment()[`MCP_ENABLED_${mount.plugin.id.toUpperCase()}`] === "true" });
       this.paths.add(mount.path);
     }
   }
 
   list(): readonly McpMount[] {
     return [...this.entries.values()].map(({ path, plugin }) => ({ path, plugin }));
+  }
+
+  isEnabled(pluginId: string): boolean { return this.entries.get(pluginId)?.enabled ?? false; }
+  async setEnabled(pluginId: string, enabled: boolean, store?: RuntimeConfigStore): Promise<void> {
+    const entry = this.entries.get(pluginId);
+    if (entry === undefined) throw new Error(`Cannot update unknown MCP plugin: ${pluginId}`);
+    entry.enabled = enabled;
+    if (store) await store.update({ [`MCP_ENABLED_${pluginId.toUpperCase()}`]: String(enabled) });
   }
 
   get(pluginId: string): McpMount | undefined {

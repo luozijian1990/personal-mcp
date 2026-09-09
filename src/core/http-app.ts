@@ -32,6 +32,7 @@ export interface HttpAppOptions {
   readonly configManagers?: readonly McpConfigManager[];
   /** Runtime Profiles. Omit for the legacy one-default-Profile-per-Plugin behavior. */
   readonly profiles?: readonly PersonalMcpProfile[];
+  readonly runtimeConfigStore?: import("./runtime-config.js").RuntimeConfigStore;
   readonly mounts?: readonly {
     readonly path: string;
     readonly plugin: PersonalMcpPlugin;
@@ -51,6 +52,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
     options.configManagers,
   );
   const configManagers = runtimeProfiles.configManagers();
+  const healthCache = new Map<string, import("./plugin.js").PluginHealth>();
 
   const app = createMcpExpressApp({ host: options.host });
   const logger = options.logger ?? createLogger({ serviceName: options.serviceName });
@@ -86,24 +88,15 @@ export function createHttpApp(options: HttpAppOptions): Express {
   };
 
   app.get("/api/status", async (_request, response) => {
-    const endpoints = await Promise.all(registry.list().map(async ({ path, plugin }) => {
+    const endpoints = registry.list().map(({ path, plugin }) => {
       const profiles = runtimeProfiles.list(plugin.id);
-      const profileStatuses = await Promise.all(profiles.map(async (profile) => {
-        const currentPlugin = profile.profileId === DEFAULT_PROFILE_ID
-          ? registry.get(profile.pluginId)?.plugin ?? profile.plugin
-          : profile.plugin;
+      const profileStatuses = profiles.map((profile) => {
         return {
           id: profile.profileId,
           configurable: profile.configManager !== undefined,
-          health: redactHealthMessage(await resolvePluginHealth(currentPlugin, {
-            onFailure: (error) => safeLog("error", "plugin.health_check_failed", {
-              plugin: plugin.id,
-              profile: profile.profileId,
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          }), redactLogValue),
+          health: healthCache.get(`${plugin.id}/${profile.profileId}`) ?? { state: "unknown" as const },
         };
-      }));
+      });
       const defaultProfile = profileStatuses.find(({ id }) => id === DEFAULT_PROFILE_ID);
       return {
         id: plugin.id,
@@ -114,9 +107,10 @@ export function createHttpApp(options: HttpAppOptions): Express {
         tools: plugin.tools,
         configurable: defaultProfile?.configurable ?? false,
         health: defaultProfile?.health ?? { state: "unknown" as const },
+        enabled: registry.isEnabled(plugin.id),
         profiles: profileStatuses,
       };
-    }));
+    });
     response.json({
       service: options.serviceName,
       status: "online",
@@ -126,6 +120,28 @@ export function createHttpApp(options: HttpAppOptions): Express {
       endpoints,
       configs: configManagers.map((manager) => manager.getSnapshot()),
     });
+  });
+
+  app.post("/api/health/check", async (_request, response) => {
+    await Promise.all(registry.list().flatMap(({ plugin }) => runtimeProfiles.list(plugin.id).map(async (profile) => {
+      if (!registry.isEnabled(plugin.id)) {
+        healthCache.set(`${plugin.id}/${profile.profileId}`, { state: "unknown", message: "MCP is disabled" });
+        return;
+      }
+      const current = profile.profileId === DEFAULT_PROFILE_ID ? registry.get(profile.pluginId)?.plugin ?? profile.plugin : profile.plugin;
+      const health = await resolvePluginHealth(current, { onFailure: (error) => safeLog("error", "plugin.health_check_failed", { plugin: plugin.id, profile: profile.profileId, error: String(error) }) });
+      healthCache.set(`${plugin.id}/${profile.profileId}`, redactHealthMessage(health, redactLogValue));
+    })));
+    response.json({ checked: true });
+  });
+
+  app.put("/api/plugins/:pluginId/enabled", async (request, response) => {
+    try {
+      const enabled = request.body?.enabled;
+      if (typeof enabled !== "boolean") throw new Error("enabled must be boolean");
+      await registry.setEnabled(request.params.pluginId, enabled, options.runtimeConfigStore);
+      response.json({ enabled });
+    } catch (error) { response.status(400).json({ error: error instanceof Error ? error.message : String(error) }); }
   });
 
   app.get("/api/config", (_request, response) => {
@@ -149,6 +165,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
       const update = operation === "update"
         ? await manager.update(input)
         : await manager.reload();
+      healthCache.delete(`${pluginId}/${profileId}`);
       safeLog("info", "config.updated", {
         plugin: pluginId,
         profile: profileId,
@@ -233,6 +250,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
       },
     );
     app.all(mount.path, (request, response) => {
+      if (!registry.isEnabled(pluginId)) { response.status(503).json({ error: "MCP is disabled" }); return; }
       const requestId = randomUUID();
       const startedAt = performance.now();
       const currentPlugin = registry.get(pluginId)?.plugin;

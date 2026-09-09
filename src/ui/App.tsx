@@ -53,6 +53,7 @@ interface PluginStatus {
   readonly tools: readonly ToolStatus[];
   readonly configurable: boolean;
   readonly health: PluginHealth;
+  readonly enabled: boolean;
   readonly profiles?: readonly {
     readonly id: string;
     readonly configurable: boolean;
@@ -105,6 +106,11 @@ export function App() {
       setChecking(false);
     }
   }, []);
+  const runHealthCheck = useCallback(async () => {
+    setChecking(true);
+    try { const response = await fetch("/api/health/check", { method: "POST" }); if (!response.ok) throw new Error(`HTTP ${response.status}`); await refresh(); }
+    finally { setChecking(false); }
+  }, [refresh]);
 
   useEffect(() => {
     void refresh();
@@ -131,7 +137,7 @@ export function App() {
     <div className="app-shell">
       <IconNavigation route={route} navigate={navigate} />
       <main className="main-content">
-        <Topbar state={state} route={route} refresh={refresh} checking={checking} />
+        <Topbar state={state} route={route} refresh={refresh} runHealthCheck={runHealthCheck} checking={checking} />
         {state.kind === "loading" && <LoadingState />}
         {state.kind === "error" && <ErrorState message={state.message} retry={refresh} />}
         {state.kind === "ready" && (
@@ -180,11 +186,12 @@ function IconNavigation({ route, navigate }: {
   );
 }
 
-function Topbar({ state, route, refresh, checking }: {
+function Topbar({ state, route, refresh, runHealthCheck, checking }: {
   readonly state: LoadState;
   readonly route: Route;
   readonly refresh: () => Promise<void>;
   readonly checking: boolean;
+  readonly runHealthCheck: () => Promise<void>;
 }) {
   const title = route.page === "home" ? "首页" : route.page === "catalog" ? "MCP 明细" : "MCP 接入";
   return (
@@ -203,7 +210,7 @@ function Topbar({ state, route, refresh, checking }: {
           <Tooltip text="刷新服务状态">
             <IconButton aria-label="刷新服务状态" icon={SyncIcon} variant="invisible" onClick={() => void refresh()} />
           </Tooltip>
-          <Button leadingVisual={checking ? Spinner : SyncIcon} disabled={checking} onClick={() => void refresh()}>
+          <Button leadingVisual={checking ? Spinner : SyncIcon} disabled={checking} onClick={() => void runHealthCheck()}>
             {checking ? "检查中…" : "执行健康检查"}
           </Button>
         </div>
@@ -293,6 +300,10 @@ function CatalogPage({ data, categoryId, navigate }: {
   readonly categoryId: string | undefined;
   readonly navigate: (route: Route) => void;
 }) {
+  const toggle = async (plugin: PluginStatus) => {
+    await fetch(`/api/plugins/${encodeURIComponent(plugin.id)}/enabled`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: !plugin.enabled }) });
+    window.location.reload();
+  };
   const categories = groupCategories(data.endpoints);
   const visiblePlugins = categoryId === undefined
     ? data.endpoints
@@ -317,15 +328,15 @@ function CatalogPage({ data, categoryId, navigate }: {
 
       <section className="mcp-list" aria-label="MCP 列表">
         {visiblePlugins.map((plugin) => (
-          <button className="mcp-row" key={plugin.id} onClick={() => navigate({ page: "detail", pluginId: plugin.id })}>
+          <div className="mcp-row" key={plugin.id} role="button" tabIndex={0} onClick={() => navigate({ page: "detail", pluginId: plugin.id })} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") navigate({ page: "detail", pluginId: plugin.id }); }}>
             <span className="plugin-icon"><TerminalIcon size={22} /></span>
             <span className="mcp-row-main">
-              <span className="mcp-row-title"><strong>{plugin.name}</strong><PluginHealthBadge health={plugin.health} /></span>
+            <span className="mcp-row-title"><strong>{plugin.name}</strong><PluginHealthBadge health={plugin.health} /><span>{plugin.enabled ? "已开启" : "已关闭"}</span></span>
               <span>{plugin.summary}</span>
             </span>
-            <span className="mcp-meta"><span>{plugin.tools.length} 个工具</span><code>{plugin.path}</code></span>
+            <span className="mcp-meta"><span>{plugin.tools.length} 个工具</span><code>{plugin.path}</code><input type="checkbox" aria-label={`${plugin.name} 启用`} checked={plugin.enabled} onChange={() => void toggle(plugin)} onClick={(event) => event.stopPropagation()} /></span>
             <ChevronRightIcon size={20} />
-          </button>
+          </div>
         ))}
       </section>
     </div>

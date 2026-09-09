@@ -86,7 +86,7 @@ npm run check
 
 - Catalog 是显式注册，不提供文件系统自动发现或动态包加载。
 - 当前仅 default Profile 挂载 MCP endpoint；命名 Profile 已支持配置与 Health，但尚未定义客户端路由选择方式。
-- 内置 Plugin 尚未实现后端 Health probe，因此诚实报告 `unknown`。
+- 内置 Plugin 已实现后端 Health probe；状态通过主动检查刷新并缓存，未检查时报告 `unknown`。
 - standalone 仍是一 Plugin 一薄入口；没有引入统一 CLI 框架。
 - Runtime 无认证且只允许 loopback，不适合直接暴露到局域网、公网或多用户环境。
 - 静态/集成测试不等于对真实 SSH、Prometheus、MySQL 后端的连通性验证。

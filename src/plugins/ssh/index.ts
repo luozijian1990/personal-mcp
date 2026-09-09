@@ -91,12 +91,12 @@ export function createSshPlugin(
       },
     ],
     config: { fields: SSH_CONFIG_FIELDS },
-    checkHealth: async () => {
+    checkHealth: async (signal) => {
       const target = [...config.allowedTargets][0];
       if (!target || !config.username || config.ports.length === 0 || !config.privateKeyPath || !config.knownHostsPath) {
         return { state: "unconfigured", message: "SSH target, credentials, and ports are not fully configured" };
       }
-      const result = await executor({ target, command: "true", timeoutSeconds: 10, maxOutputCharacters: 1000 });
+      const result = await executor({ target, command: "true", timeoutSeconds: 5, maxOutputCharacters: 1000, signal });
       return result.exitCode === 0
         ? { state: "healthy", message: `SSH connection to ${target} is healthy` }
         : { state: "unhealthy", message: result.stderr || `SSH check failed with exit code ${result.exitCode}` };

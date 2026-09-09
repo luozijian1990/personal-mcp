@@ -11,6 +11,7 @@ export interface SshRunRequest {
   readonly command: string;
   readonly timeoutSeconds: number;
   readonly maxOutputCharacters: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface SshRunResult {
@@ -210,6 +211,8 @@ async function attemptSshPort(
       let stderr = "";
       let captureTruncated = false;
       let timeout: NodeJS.Timeout | undefined;
+      const abort = () => { connection.end(); finish(255, "ABORT_ERR", "SSH health check aborted"); };
+      request.signal?.addEventListener("abort", abort, { once: true });
 
       const append = (current: string, chunk: Buffer | string): string => {
         const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");

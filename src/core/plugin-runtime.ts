@@ -39,11 +39,12 @@ export async function startPluginRuntime(
     options.definitions,
     options.profileDefinitions,
   );
-  const registry = new McpRegistry(catalog.mounts);
+  const registry = new McpRegistry(catalog.mounts, options.store);
   const app = createHttpApp({
     host,
     serviceName: options.serviceName,
     registry,
+    runtimeConfigStore: options.store ?? createRuntimeConfigStore(),
     profiles: catalog.profiles,
     ...(options.uiDirectory === undefined ? {} : { uiDirectory: options.uiDirectory }),
     ...(options.logger === undefined ? {} : { logger: options.logger }),
