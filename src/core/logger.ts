@@ -1,6 +1,8 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
+import { limitLogValue } from "./log-value.js";
+
 export type LogFields = Readonly<Record<string, unknown>>;
 
 export interface Logger {
@@ -120,23 +122,6 @@ function formatLogValue(value: unknown): string {
 
 function limitFields(fields: LogFields, maxCharacters: number): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(fields).map(([key, value]) => [key, limitValue(value, maxCharacters)]),
-  );
-}
-
-function limitValue(value: unknown, maxCharacters: number, depth = 0): unknown {
-  if (typeof value === "string") {
-    return value.length > maxCharacters
-      ? `${value.slice(0, maxCharacters)}...[truncated]`
-      : value;
-  }
-  if (value === null || typeof value !== "object") return value;
-  if (depth >= 5) return "[nested value truncated]";
-  if (Array.isArray(value)) {
-    return value.map((item) => limitValue(item, maxCharacters, depth + 1));
-  }
-  if (Buffer.isBuffer(value)) return `<Buffer ${value.length} bytes>`;
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, limitValue(item, maxCharacters, depth + 1)]),
+    Object.entries(fields).map(([key, value]) => [key, limitLogValue(value, maxCharacters)]),
   );
 }

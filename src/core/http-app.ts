@@ -9,8 +9,16 @@ import type { Express, Request, Response } from "express";
 
 import { createLogger } from "./logger.js";
 import type { Logger } from "./logger.js";
+import { limitLogValue } from "./log-value.js";
 import { McpRegistry } from "./mcp-registry.js";
-import type { McpConfigManager, PersonalMcpPlugin } from "./plugin.js";
+import type {
+  McpConfigManager,
+  PersonalMcpPlugin,
+  ToolLoggingPolicy,
+} from "./plugin.js";
+
+const DEFAULT_TOOL_LOGGING_POLICY: ToolLoggingPolicy = "metadata";
+const MAX_LOG_PAYLOAD_CHARACTERS = 100_000;
 
 export interface HttpAppOptions {
   readonly host: string;
@@ -58,6 +66,25 @@ export function createHttpApp(options: HttpAppOptions): Express {
     }
     return redacted;
   };
+  const safeLog = (
+    level: "info" | "error",
+    event: string,
+    fields?: Readonly<Record<string, unknown>>,
+  ) => {
+    try {
+      if (fields === undefined) {
+        logger[level](event);
+        return;
+      }
+      const protectedFields = redactLogValue(fields);
+      logger[level](
+        event,
+        isRecord(protectedFields) ? protectedFields : { fields: "[REDACTED]" },
+      );
+    } catch {
+      // Logging is observational and must never affect an MCP or configuration request.
+    }
+  };
 
   app.get("/api/status", (_request, response) => {
     response.json({
@@ -98,7 +125,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
       const update = operation === "update"
         ? await manager.update(input)
         : await manager.reload();
-      logger.info("config.updated", {
+      safeLog("info", "config.updated", {
         plugin: pluginId,
         changed_keys: update.changedKeys,
         operation,
@@ -107,7 +134,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
       response.json({ config: update.snapshot, reloaded: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.error("config.update_failed", { plugin: pluginId, operation, error: message });
+      safeLog("error", "config.update_failed", { plugin: pluginId, operation, error: message });
       response.status(400).json({ error: message, reloaded: false });
     }
   };
@@ -150,7 +177,7 @@ export function createHttpApp(options: HttpAppOptions): Express {
       }),
       {
         onerror: (error) => {
-          logger.error("mcp.handler_error", {
+          safeLog("error", "mcp.handler_error", {
             plugin: pluginId,
             endpoint: mount.path,
             error: redactLogValue(error.message),
@@ -161,29 +188,37 @@ export function createHttpApp(options: HttpAppOptions): Express {
     app.all(mount.path, (request, response) => {
       const requestId = randomUUID();
       const startedAt = performance.now();
+      const currentPlugin = registry.get(pluginId)?.plugin;
+      const requestMetadata = readMcpRequestMetadata(request.body);
+      const tool = currentPlugin?.tools.find((candidate) => candidate.name === requestMetadata.tool);
+      const inputPolicy = normalizeLoggingPolicy(tool?.logging?.input);
+      const outputPolicy = normalizeLoggingPolicy(tool?.logging?.output);
       const outputChunks: string[] = [];
-      const maxOutputCharacters = 100_000;
       let outputCharacters = 0;
       let outputTruncated = false;
       let responseLogged = false;
 
       const captureOutput = (chunk: unknown) => {
-        if (chunk === undefined || chunk === null || typeof chunk === "function") return;
-        const text = typeof chunk === "string"
-          ? chunk
-          : Buffer.isBuffer(chunk)
-            ? chunk.toString("utf8")
-            : chunk instanceof Uint8Array
-              ? Buffer.from(chunk).toString("utf8")
-              : String(chunk);
-        if (outputCharacters >= maxOutputCharacters) {
+        try {
+          if (chunk === undefined || chunk === null || typeof chunk === "function") return;
+          const text = typeof chunk === "string"
+            ? chunk
+            : Buffer.isBuffer(chunk)
+              ? chunk.toString("utf8")
+              : chunk instanceof Uint8Array
+                ? Buffer.from(chunk).toString("utf8")
+                : String(chunk);
+          if (outputCharacters >= MAX_LOG_PAYLOAD_CHARACTERS) {
+            outputTruncated = true;
+            return;
+          }
+          const remaining = MAX_LOG_PAYLOAD_CHARACTERS - outputCharacters;
+          if (text.length > remaining) outputTruncated = true;
+          outputChunks.push(text.slice(0, remaining));
+          outputCharacters += Math.min(text.length, remaining);
+        } catch {
           outputTruncated = true;
-          return;
         }
-        const remaining = maxOutputCharacters - outputCharacters;
-        if (text.length > remaining) outputTruncated = true;
-        outputChunks.push(text.slice(0, remaining));
-        outputCharacters += Math.min(text.length, remaining);
       };
 
       // Capture both streamed chunks and a final body passed to response.end().
@@ -205,31 +240,52 @@ export function createHttpApp(options: HttpAppOptions): Express {
       const logResponse = (completed: boolean) => {
         if (responseLogged) return;
         responseLogged = true;
-        logger.info("mcp.response", {
-          request_id: requestId,
-          plugin: pluginId,
-          status: response.statusCode,
-          duration_ms: Math.round(performance.now() - startedAt),
-          completed,
-          truncated: outputTruncated,
-          output: redactLogValue(parseMcpOutput(outputChunks.join(""))),
-        });
+        if (outputPolicy === "none") return;
+        try {
+          const fields: Record<string, unknown> = {
+            request_id: requestId,
+            plugin: pluginId,
+            tool: requestMetadata.tool,
+            status: response.statusCode,
+            duration_ms: Math.round(performance.now() - startedAt),
+            completed,
+            truncated: outputTruncated,
+          };
+          const output = outputTruncated && outputPolicy === "full"
+            ? "[TRUNCATED]"
+            : loggingPayload(
+              outputPolicy,
+              parseMcpOutput(outputChunks.join("")),
+              redactLogValue,
+            );
+          if (output !== undefined) fields.output = output;
+          safeLog("info", "mcp.response", fields);
+        } catch {
+          // Payload parsing, redaction, and formatting are part of the isolated logging boundary.
+        }
       };
 
       response.once("finish", () => logResponse(true));
       response.once("close", () => logResponse(false));
-      const requestMetadata = readMcpRequestMetadata(request.body);
-      logger.info("mcp.request", {
-        request_id: requestId,
-        plugin: pluginId,
-        endpoint: mount.path,
-        http_method: request.method,
-        ...requestMetadata,
-        input: redactLogValue(request.body ?? null),
-      });
+      if (inputPolicy !== "none") {
+        try {
+          const fields: Record<string, unknown> = {
+            request_id: requestId,
+            plugin: pluginId,
+            endpoint: mount.path,
+            http_method: request.method,
+            ...requestMetadata,
+          };
+          const input = loggingPayload(inputPolicy, request.body ?? null, redactLogValue);
+          if (input !== undefined) fields.input = input;
+          safeLog("info", "mcp.request", fields);
+        } catch {
+          // Logging failures must not prevent the handler from receiving the request.
+        }
+      }
 
       void handler(request, response, request.body).catch((error: unknown) => {
-        logger.error("mcp.handler_rejected", {
+        safeLog("error", "mcp.handler_rejected", {
           request_id: requestId,
           plugin: pluginId,
           endpoint: mount.path,
@@ -270,6 +326,22 @@ function readMcpRequestMetadata(input: unknown): Record<string, unknown> {
     rpc_method: input.method,
     tool: input.method === "tools/call" ? params?.name : undefined,
   };
+}
+
+function normalizeLoggingPolicy(policy: unknown): ToolLoggingPolicy {
+  return policy === "full" || policy === "metadata" || policy === "redacted" || policy === "none"
+    ? policy
+    : DEFAULT_TOOL_LOGGING_POLICY;
+}
+
+function loggingPayload(
+  policy: ToolLoggingPolicy,
+  value: unknown,
+  redactSecrets: (value: unknown) => unknown,
+): unknown {
+  if (policy === "metadata" || policy === "none") return undefined;
+  if (policy === "redacted") return "[REDACTED]";
+  return limitLogValue(redactSecrets(value), MAX_LOG_PAYLOAD_CHARACTERS);
 }
 
 function parsePayload(value: string): unknown {

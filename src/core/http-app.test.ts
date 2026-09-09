@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
+import { McpServer } from "@modelcontextprotocol/server";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { z } from "zod/v4";
 
 import { createHttpApp, parseMcpOutput } from "./http-app.js";
 import { McpRegistry } from "./mcp-registry.js";
@@ -151,7 +153,7 @@ test("gateway exposes the SSH plugin over its mounted MCP path", async (context)
       && entry.fields?.request_id === requestLog?.fields?.request_id,
   );
   assert.equal(responseLog?.fields?.status, 200);
-  assert.match(JSON.stringify(responseLog?.fields?.output), /test-host/);
+  assert.equal(responseLog?.fields?.output, undefined);
 });
 
 test("unauthenticated app refuses a non-loopback bind", () => {
@@ -458,3 +460,276 @@ test("status exposes rich schema and risk metadata from a test plugin", async (c
   assert.match(toolMarkup, /调用前确认/);
   assert.match(toolMarkup, /默认停用/);
 });
+
+test("gateway centrally enforces Tool input and output logging policies", async (context) => {
+  const secret = "central-policy-secret";
+  const tools: PersonalMcpPlugin["tools"] = [
+    { name: "full", title: "Full", risk: "read-only", logging: { input: "full", output: "full" } },
+    { name: "metadata", title: "Metadata", risk: "read-only", logging: { input: "metadata", output: "metadata" } },
+    { name: "redacted", title: "Redacted", risk: "read-only", logging: { input: "redacted", output: "redacted" } },
+    { name: "none", title: "None", risk: "read-only", logging: { input: "none", output: "none" } },
+    { name: "unknown", title: "Unknown", risk: "read-only", logging: { input: "unknown" as never, output: "unknown" as never } },
+    { name: "secret", title: "Secret", risk: "read-only", logging: { input: "full", output: "full" } },
+    { name: "split", title: "Split", risk: "read-only", logging: { input: "full", output: "none" } },
+  ];
+  const plugin = createLoggingTestPlugin("logging-test", tools);
+  const logs: Array<{
+    event: string;
+    fields: Readonly<Record<string, unknown>> | undefined;
+  }> = [];
+  const manager: McpConfigManager = {
+    pluginId: plugin.id,
+    getSnapshot: () => ({
+      pluginId: plugin.id,
+      fields: [],
+      values: {},
+      revision: 0,
+      updatedAt: null,
+    }),
+    update: async () => { throw new Error("not used"); },
+    reload: async () => { throw new Error("not used"); },
+    redactSecrets: (value) => redactTestSecret(value, secret),
+  };
+  const app = createHttpApp({
+    host: "127.0.0.1",
+    serviceName: "logging-test",
+    logger: {
+      info: (event, fields) => logs.push({ event, fields }),
+      error: (event, fields) => logs.push({ event, fields }),
+    },
+    mounts: [{ path: "/logging-test/mcp", plugin }],
+    configManagers: [manager],
+  });
+  const { server, url } = await startHttpServer(app, "127.0.0.1", 0);
+  context.after(async () => {
+    server.close();
+    await once(server, "close");
+  });
+
+  const endpoint = new URL("/logging-test/mcp", url);
+  await callLoggingTool(endpoint, "full", "visible-full-value");
+  await callLoggingTool(endpoint, "metadata", "hidden-metadata-value");
+  await callLoggingTool(endpoint, "redacted", "hidden-redacted-value");
+  await callLoggingTool(endpoint, "none", "hidden-none-value");
+  await callLoggingTool(endpoint, "unknown", "hidden-unknown-value");
+  await callLoggingTool(endpoint, "split", "visible-input-only");
+  const secretResponse = await callLoggingTool(endpoint, "secret", secret);
+  assert.match(secretResponse, new RegExp(secret));
+  await callLoggingTool(endpoint, "metadata", "metadata-value", { rpcId: secret });
+
+  const entries = (tool: string, event: string) => logs.filter(
+    (entry) => entry.event === event && entry.fields?.tool === tool,
+  );
+  assert.match(JSON.stringify(entries("full", "mcp.request")), /visible-full-value/);
+  assert.match(JSON.stringify(entries("full", "mcp.response")), /visible-full-value/);
+
+  for (const event of ["mcp.request", "mcp.response"]) {
+    const metadataEntry = entries("metadata", event)[0];
+    assert.ok(metadataEntry);
+    assert.equal(metadataEntry.fields?.input, undefined);
+    assert.equal(metadataEntry.fields?.output, undefined);
+
+    const redactedEntry = entries("redacted", event)[0];
+    assert.ok(redactedEntry);
+    assert.equal(redactedEntry.fields?.[event === "mcp.request" ? "input" : "output"], "[REDACTED]");
+
+    const unknownEntry = entries("unknown", event)[0];
+    assert.ok(unknownEntry);
+    assert.equal(unknownEntry.fields?.input, undefined);
+    assert.equal(unknownEntry.fields?.output, undefined);
+  }
+  assert.equal(entries("none", "mcp.request").length, 0);
+  assert.equal(entries("none", "mcp.response").length, 0);
+  assert.match(JSON.stringify(entries("split", "mcp.request")), /visible-input-only/);
+  assert.equal(entries("split", "mcp.response").length, 0);
+  assert.doesNotMatch(JSON.stringify(logs), new RegExp(secret));
+  assert.ok(entries("metadata", "mcp.request").some(
+    (entry) => entry.fields?.rpc_id === "[REDACTED]",
+  ));
+  assert.match(JSON.stringify(entries("secret", "mcp.request")), /\[REDACTED\]/);
+  assert.match(JSON.stringify(entries("secret", "mcp.response")), /\[REDACTED\]/);
+
+  const statusResponse = await fetch(new URL("/api/status", url));
+  const status = await statusResponse.json() as {
+    endpoints: Array<{ id: string; tools: PersonalMcpPlugin["tools"] }>;
+  };
+  const statusTool = status.endpoints[0]?.tools.find((candidate) => candidate.name === "split");
+  assert.deepEqual(statusTool?.logging, { input: "full", output: "none" });
+});
+
+test("full Tool logs truncate input and output without retaining partial output", async (context) => {
+  const plugin = createLoggingTestPlugin("logging-limit", [{
+    name: "full",
+    title: "Full",
+    risk: "read-only",
+    logging: { input: "full", output: "full" },
+  }]);
+  const logs: Array<{
+    event: string;
+    fields: Readonly<Record<string, unknown>> | undefined;
+  }> = [];
+  const app = createHttpApp({
+    host: "127.0.0.1",
+    serviceName: "logging-limit",
+    logger: {
+      info: (event, fields) => logs.push({ event, fields }),
+      error: (event, fields) => logs.push({ event, fields }),
+    },
+    mounts: [{ path: "/logging-limit/mcp", plugin }],
+  });
+  const { server, url } = await startHttpServer(app, "127.0.0.1", 0);
+  context.after(async () => {
+    server.close();
+    await once(server, "close");
+  });
+
+  await callLoggingTool(new URL("/logging-limit/mcp", url), "full", "x".repeat(50_100), {
+    extraValue: "y".repeat(50_100),
+  });
+
+  const requestLog = logs.find((entry) => entry.event === "mcp.request");
+  const responseLog = logs.find((entry) => entry.event === "mcp.response");
+  assert.match(JSON.stringify(requestLog?.fields?.input), /\[truncated\]/);
+  assert.equal(responseLog?.fields?.truncated, true);
+  assert.equal(responseLog?.fields?.output, "[TRUNCATED]");
+});
+
+test("replaced Plugins apply their current Tool logging policies", async (context) => {
+  const pluginId = "logging-replacement";
+  const fullPlugin = createLoggingTestPlugin(pluginId, [{
+    name: "echo",
+    title: "Echo",
+    risk: "read-only",
+    logging: { input: "full", output: "full" },
+  }]);
+  const nonePlugin = createLoggingTestPlugin(pluginId, [{
+    name: "echo",
+    title: "Echo",
+    risk: "read-only",
+    logging: { input: "none", output: "none" },
+  }]);
+  const registry = new McpRegistry([{ path: `/${pluginId}/mcp`, plugin: fullPlugin }]);
+  const logs: Array<{
+    event: string;
+    fields: Readonly<Record<string, unknown>> | undefined;
+  }> = [];
+  const app = createHttpApp({
+    host: "127.0.0.1",
+    serviceName: pluginId,
+    logger: {
+      info: (event, fields) => logs.push({ event, fields }),
+      error: (event, fields) => logs.push({ event, fields }),
+    },
+    registry,
+  });
+  const { server, url } = await startHttpServer(app, "127.0.0.1", 0);
+  context.after(async () => {
+    server.close();
+    await once(server, "close");
+  });
+  const endpoint = new URL(`/${pluginId}/mcp`, url);
+
+  await callLoggingTool(endpoint, "echo", "logged-before-replacement");
+  registry.replace(pluginId, nonePlugin);
+  await callLoggingTool(endpoint, "echo", "hidden-after-replacement");
+
+  const logText = JSON.stringify(logs);
+  assert.match(logText, /logged-before-replacement/);
+  assert.doesNotMatch(logText, /hidden-after-replacement/);
+  assert.equal(logs.filter((entry) => entry.event === "mcp.request").length, 1);
+  assert.equal(logs.filter((entry) => entry.event === "mcp.response").length, 1);
+});
+
+test("logger failures do not change successful MCP responses", async (context) => {
+  const plugin = createLoggingTestPlugin("logging-failure", [{
+    name: "full",
+    title: "Full",
+    risk: "read-only",
+    logging: { input: "full", output: "full" },
+  }]);
+  const app = createHttpApp({
+    host: "127.0.0.1",
+    serviceName: "logging-failure",
+    logger: {
+      info: () => { throw new Error("logger unavailable"); },
+      error: () => { throw new Error("logger unavailable"); },
+    },
+    mounts: [{ path: "/logging-failure/mcp", plugin }],
+  });
+  const { server, url } = await startHttpServer(app, "127.0.0.1", 0);
+  context.after(async () => {
+    server.close();
+    await once(server, "close");
+  });
+
+  const body = await callLoggingTool(
+    new URL("/logging-failure/mcp", url),
+    "full",
+    "request-still-succeeds",
+  );
+  assert.match(body, /request-still-succeeds/);
+});
+
+function createLoggingTestPlugin(
+  id: string,
+  tools: PersonalMcpPlugin["tools"],
+): PersonalMcpPlugin {
+  return {
+    id,
+    displayName: "Logging Test",
+    summary: "logging policy test plugin",
+    category: { id: "test", name: "Test", description: "Test plugins" },
+    tools,
+    createServer: () => {
+      const server = new McpServer({ name: `${id}-server`, version: "0.1.0" });
+      for (const tool of tools) {
+        server.registerTool(tool.name, {
+          inputSchema: z.object({ value: z.string(), extraValue: z.string().optional() }),
+        }, async ({ value, extraValue }) => ({
+          content: [{ type: "text" as const, text: `${value}${extraValue ?? ""}` }],
+        }));
+      }
+      return server;
+    },
+  };
+}
+
+async function callLoggingTool(
+  endpoint: URL,
+  tool: string,
+  value: string,
+  options: { readonly extraValue?: string; readonly rpcId?: string | number } = {},
+): Promise<string> {
+  const toolResponse = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: options.rpcId ?? `${tool}-${value.length}`,
+      method: "tools/call",
+      params: {
+        name: tool,
+        arguments: {
+          value,
+          ...(options.extraValue === undefined ? {} : { extraValue: options.extraValue }),
+        },
+      },
+    }),
+  });
+  assert.equal(toolResponse.status, 200);
+  return toolResponse.text();
+}
+
+function redactTestSecret(value: unknown, secret: string): unknown {
+  if (typeof value === "string") return value.replaceAll(secret, "[REDACTED]");
+  if (Array.isArray(value)) return value.map((item) => redactTestSecret(item, secret));
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redactTestSecret(item, secret)]),
+    );
+  }
+  return value;
+}

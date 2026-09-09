@@ -56,8 +56,8 @@ export function createPrometheusPlugin(
   return {
     ...PROMETHEUS_PLUGIN_METADATA,
     tools: [
-      { name: "prometheus_query", title: "即时查询", risk: "read-only" },
-      { name: "prometheus_query_range", title: "区间查询", risk: "read-only" },
+      { name: "prometheus_query", title: "即时查询", risk: "read-only", logging: { input: "full", output: "metadata" } },
+      { name: "prometheus_query_range", title: "区间查询", risk: "read-only", logging: { input: "full", output: "metadata" } },
     ],
     config: { fields: PROMETHEUS_CONFIG_FIELDS },
     createServer: () => createPrometheusServer(config),

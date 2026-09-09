@@ -78,6 +78,7 @@ export function createSshPlugin(
         name: "ssh_get_system_snapshot",
         title: "系统快照",
         risk: "read-only",
+        logging: { input: "full", output: "metadata" },
       },
       {
         name: "ssh_execute_command",
@@ -85,6 +86,7 @@ export function createSshPlugin(
         risk: "privileged",
         requiresConfirmation: true,
         disabledByDefault: true,
+        logging: { input: "redacted", output: "metadata" },
       },
     ],
     config: { fields: SSH_CONFIG_FIELDS },

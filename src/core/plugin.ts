@@ -378,6 +378,15 @@ export type ToolRisk =
   /** @deprecated Compatibility alias for pre-risk-model plugins. Prefer `write`. */
   | "write-capable";
 
+export type ToolLoggingPolicy = "full" | "metadata" | "redacted" | "none";
+
+export interface ToolLoggingPolicies {
+  /** Controls whether and how the JSON-RPC request body is logged. */
+  readonly input?: ToolLoggingPolicy;
+  /** Controls whether and how the JSON-RPC response body is logged. */
+  readonly output?: ToolLoggingPolicy;
+}
+
 export interface PersonalMcpToolMetadata {
   readonly name: string;
   readonly title: string;
@@ -386,6 +395,8 @@ export interface PersonalMcpToolMetadata {
   readonly requiresConfirmation?: boolean;
   /** Discovery/exposure hint only. The MCP server remains the authoritative safety boundary. */
   readonly disabledByDefault?: boolean;
+  /** Enforced by the Runtime; Plugins must not log Tool payloads themselves. */
+  readonly logging?: ToolLoggingPolicies;
 }
 
 export interface PersonalMcpPlugin extends PersonalMcpPluginMetadata {
