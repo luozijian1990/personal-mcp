@@ -79,18 +79,10 @@ npm run dev
 cp .runtime-config.example.json .runtime-config.json
 ```
 
-| 插件 | 主要环境变量 |
-| --- | --- |
-| SSH | `SSH_MCP_ALLOWED_TARGETS`、`SSH_MCP_USERNAME`、`SSH_MCP_PORTS`、`SSH_MCP_PRIVATE_KEY_PATH`、`SSH_MCP_KNOWN_HOSTS_PATH` |
-| Prometheus | `PROMETHEUS_MCP_URL`、`PROMETHEUS_MCP_QUERY_TIMEOUT` |
-| MySQL | `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE` |
-| Jenkins | `JENKINS_URL`、`JENKINS_USER`、`JENKINS_TOKEN` |
-| Kubernetes | `KUBERNETES_KUBECONFIG_PATH`、`KUBERNETES_CONTEXT`、`KUBERNETES_DEFAULT_NAMESPACE` |
-
 控制台保存的值写入 `.runtime-config.json`，后续启动时优先于同名环境变量。该文件以 `0600` 权限写入并已被 `.gitignore` 排除。可通过 `MCP_RUNTIME_CONFIG_PATH` 更改保存位置。
 
 > [!TIP]
-> 各字段含义、完整示例和插件特有约束，请查看对应插件文档：[Kubernetes](src/plugins/kubernetes/README.md)、[Jenkins](src/plugins/jenkins/README.md)、[SSH](src/plugins/ssh/README.md)、[Prometheus](src/plugins/prometheus/README.md)、[MySQL](src/plugins/mysql/README.md)。
+> 当前 Plugin、配置字段和能力以 Web 控制台为准；各 Plugin 的完整示例与安全边界见 [`src/plugins/`](src/plugins/) 下的独立 README。
 
 ## 客户端接入
 

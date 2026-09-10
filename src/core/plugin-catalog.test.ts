@@ -31,6 +31,7 @@ import { PROMETHEUS_PLUGIN_DEFINITION } from "../plugins/prometheus/definition.j
 import { SSH_PLUGIN_DEFINITION } from "../plugins/ssh/definition.js";
 import { JENKINS_PLUGIN_DEFINITION } from "../plugins/jenkins/definition.js";
 import { KUBERNETES_PLUGIN_DEFINITION } from "../plugins/kubernetes/definition.js";
+import { ELASTICSEARCH_PLUGIN_DEFINITION } from "../plugins/elasticsearch/definition.js";
 
 function testPlugin(id: string): PersonalMcpPlugin {
   return {
@@ -150,9 +151,9 @@ test("standalone port resolution uses Definition defaults and honors PORT overri
   assert.equal(resolveStandalonePort(definition, {}), 3199);
   assert.equal(resolveStandalonePort(definition, { PORT: "3200" }), 3200);
   assert.deepEqual(
-    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION]
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION]
       .map((pluginDefinition) => resolveStandalonePort(pluginDefinition, {})),
-    [3101, 3102, 3103, 3104, 3105],
+    [3101, 3102, 3103, 3104, 3105, 3106],
   );
 });
 
@@ -168,7 +169,7 @@ test("the test plugin can be replaced through the initialized registry", () => {
 test("the built-in catalog preserves plugin endpoints and status metadata", async (context) => {
   const catalog = initializeBuiltinPluginCatalog(createRuntimeConfigStore());
   assert.deepEqual(
-    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION]
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION]
       .map(({ metadata, defaultPort }) => ({ id: metadata.id, defaultPort })),
     [
       { id: "ssh", defaultPort: 3101 },
@@ -176,6 +177,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "mysql", defaultPort: 3103 },
       { id: "jenkins", defaultPort: 3104 },
       { id: "kubernetes", defaultPort: 3105 },
+      { id: "elasticsearch", defaultPort: 3106 },
     ],
   );
   assert.deepEqual(
@@ -186,9 +188,10 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "mysql", path: "/mysql/mcp" },
       { id: "jenkins", path: "/jenkins/mcp" },
       { id: "kubernetes", path: "/kubernetes/mcp" },
+      { id: "elasticsearch", path: "/elasticsearch/mcp" },
     ],
   );
-  assert.deepEqual(catalog.configManagers.map(({ pluginId }) => pluginId), ["ssh", "prometheus", "mysql", "jenkins", "kubernetes"]);
+  assert.deepEqual(catalog.configManagers.map(({ pluginId }) => pluginId), ["ssh", "prometheus", "mysql", "jenkins", "kubernetes", "elasticsearch"]);
   assert.deepEqual(
     catalog.profiles.map(({ pluginId, profileId }) => ({ pluginId, profileId })),
     [
@@ -197,6 +200,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { pluginId: "mysql", profileId: "default" },
       { pluginId: "jenkins", profileId: "default" },
       { pluginId: "kubernetes", profileId: "default" },
+      { pluginId: "elasticsearch", profileId: "default" },
     ],
   );
 
@@ -223,6 +227,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
     { id: "mysql", path: "/mysql/mcp" },
     { id: "jenkins", path: "/jenkins/mcp" },
     { id: "kubernetes", path: "/kubernetes/mcp" },
+    { id: "elasticsearch", path: "/elasticsearch/mcp" },
   ]);
   assert.deepEqual(body.endpoints.map(({ id, name, category }) => ({ id, name, category: category.id })), [
     { id: "ssh", name: "SSH Remote Operations", category: "remote-operations" },
@@ -230,6 +235,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
     { id: "mysql", name: "MySQL Database", category: "databases" },
     { id: "jenkins", name: "Jenkins", category: "ci" },
     { id: "kubernetes", name: "Kubernetes", category: "operations" },
+    { id: "elasticsearch", name: "Elasticsearch 7", category: "operations" },
   ]);
   assert.deepEqual(
     catalog.mounts.map(({ plugin }) => ({ id: plugin.id, tools: plugin.tools.map(({ name }) => name) })),
@@ -239,6 +245,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "mysql", tools: ["execute_sql"] },
       { id: "jenkins", tools: ["jenkins_get_job", "jenkins_get_build", "jenkins_get_console_log"] },
       { id: "kubernetes", tools: ["k8s_list_namespaces", "k8s_list_workloads", "k8s_get_workload_snapshot", "k8s_get_service_snapshot", "k8s_get_ingress_snapshot", "k8s_list_events", "k8s_get_pod_logs"] },
+      { id: "elasticsearch", tools: ["elasticsearch_get_capabilities", "elasticsearch_cluster_health", "elasticsearch_list_indices", "elasticsearch_list_shards", "elasticsearch_allocation_explain", "elasticsearch_get_mapping", "elasticsearch_field_caps", "elasticsearch_sample_documents", "elasticsearch_search"] },
     ],
   );
 });

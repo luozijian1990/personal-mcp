@@ -24,7 +24,9 @@
     "dev:jenkins": "tsx src/apps/jenkins-standalone.ts",
     "start:jenkins": "node dist/apps/jenkins-standalone.js",
     "dev:kubernetes": "tsx src/apps/kubernetes-standalone.ts",
-    "start:kubernetes": "node dist/apps/kubernetes-standalone.js"
+    "start:kubernetes": "node dist/apps/kubernetes-standalone.js",
+    "dev:elasticsearch": "tsx src/apps/elasticsearch-standalone.ts",
+    "start:elasticsearch": "node dist/apps/elasticsearch-standalone.js"
   },
   "dependencies": {
     "@kubernetes/client-node": "1.4.0",
