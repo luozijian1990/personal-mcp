@@ -50,3 +50,18 @@ test("registry rejects duplicate plugin ids and mount paths", () => {
     /Duplicate MCP mount path: \/ssh\/mcp/,
   );
 });
+
+test("runtime-backed registry keeps Plugins disabled until explicitly enabled", async () => {
+  let environment: NodeJS.ProcessEnv = {};
+  const registry = new McpRegistry([{ path: "/ssh/mcp", plugin: sshPlugin() }], {
+    environment: () => ({ ...environment }),
+    update: async (values) => { environment = { ...environment, ...values }; },
+  });
+  assert.equal(registry.isEnabled("ssh"), false);
+  await registry.setEnabled("ssh", true, {
+    environment: () => ({ ...environment }),
+    update: async (values) => { environment = { ...environment, ...values }; },
+  });
+  assert.equal(registry.isEnabled("ssh"), true);
+  assert.equal(environment.MCP_ENABLED_SSH, "true");
+});

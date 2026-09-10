@@ -34,17 +34,18 @@ export async function startPluginRuntime(
   options: StartPluginRuntimeOptions,
 ): Promise<StartedPluginRuntime> {
   const host = options.host ?? "127.0.0.1";
+  const store = options.store ?? createRuntimeConfigStore();
   const catalog = initializePluginCatalog(
-    options.store ?? createRuntimeConfigStore(),
+    store,
     options.definitions,
     options.profileDefinitions,
   );
-  const registry = new McpRegistry(catalog.mounts, options.store);
+  const registry = new McpRegistry(catalog.mounts, store);
   const app = createHttpApp({
     host,
     serviceName: options.serviceName,
     registry,
-    runtimeConfigStore: options.store ?? createRuntimeConfigStore(),
+    runtimeConfigStore: store,
     profiles: catalog.profiles,
     ...(options.uiDirectory === undefined ? {} : { uiDirectory: options.uiDirectory }),
     ...(options.logger === undefined ? {} : { logger: options.logger }),

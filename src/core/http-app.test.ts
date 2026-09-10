@@ -210,6 +210,8 @@ test("status exposes optional Plugin health and isolates a failed check", async 
     await once(server, "close");
   });
 
+  const healthCheck = await fetch(new URL("/api/health/check", url), { method: "POST" });
+  assert.equal(healthCheck.status, 200);
   const response = await fetch(new URL("/api/status", url));
   const responseText = await response.text();
   assert.doesNotMatch(responseText, /must-not-reach-status|unexpectedSecret/);

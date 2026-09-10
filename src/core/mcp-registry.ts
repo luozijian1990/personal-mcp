@@ -24,7 +24,15 @@ export class McpRegistry {
           `Invalid MCP mount path for ${mount.plugin.id}: expected ${expectedPath}, received ${mount.path}`,
         );
       }
-      this.entries.set(mount.plugin.id, { path: mount.path, plugin: mount.plugin, enabled: store?.environment()[`MCP_ENABLED_${mount.plugin.id.toUpperCase()}`] === "true" });
+      this.entries.set(mount.plugin.id, {
+        path: mount.path,
+        plugin: mount.plugin,
+        // Explicit mounts without persistence preserve the legacy/test behavior. Real runtimes
+        // always provide a store and therefore remain disabled until deliberately enabled.
+        enabled: store === undefined
+          ? true
+          : store.environment()[`MCP_ENABLED_${mount.plugin.id.toUpperCase()}`] === "true",
+      });
       this.paths.add(mount.path);
     }
   }

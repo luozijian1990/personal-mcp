@@ -127,7 +127,7 @@ test("a catalog test plugin is served through the runtime seam", async (context)
 test("standalone startup reuses the catalog Runtime", async (context) => {
   const runtime = await startStandalonePlugin(definition, {
     port: 0,
-    store: memoryConfigStore({}),
+    store: memoryConfigStore({ MCP_ENABLED_TEST: "true" }),
     logger: { info: () => undefined, error: () => undefined },
   });
   context.after(async () => {
@@ -231,6 +231,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
 
 test("a Mock Plugin supports multiple Profile config lifecycles and health without changing Tool input", async (context) => {
   const store = memoryConfigStore({
+    MCP_ENABLED_MULTI: "true",
     TEST_VALUE: "default-v1",
     TEST_FALLBACK: "default-only",
     [runtimeProfileConfigKey("multi", "prod", "TEST_VALUE")]: "prod-v1",
@@ -290,6 +291,8 @@ test("a Mock Plugin supports multiple Profile config lifecycles and health witho
     ],
   );
 
+  const healthCheck = await fetch(new URL("/api/health/check", url), { method: "POST" });
+  assert.equal(healthCheck.status, 200);
   const initialStatus = await (await fetch(new URL("/api/status", url))).json() as {
     endpoints: Array<{
       id: string;
@@ -334,6 +337,8 @@ test("a Mock Plugin supports multiple Profile config lifecycles and health witho
   assert.equal(reloaded.config.revision, 2);
   assert.equal(reloaded.config.values.TEST_VALUE, "prod-v3");
 
+  const refreshedHealth = await fetch(new URL("/api/health/check", url), { method: "POST" });
+  assert.equal(refreshedHealth.status, 200);
   const finalStatus = await (await fetch(new URL("/api/status", url))).json() as {
     endpoints: Array<{ profiles: Array<{ id: string; health: { message?: string } }> }>;
   };
