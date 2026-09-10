@@ -29,6 +29,8 @@ import {
 import { MYSQL_PLUGIN_DEFINITION } from "../plugins/mysql/definition.js";
 import { PROMETHEUS_PLUGIN_DEFINITION } from "../plugins/prometheus/definition.js";
 import { SSH_PLUGIN_DEFINITION } from "../plugins/ssh/definition.js";
+import { JENKINS_PLUGIN_DEFINITION } from "../plugins/jenkins/definition.js";
+import { KUBERNETES_PLUGIN_DEFINITION } from "../plugins/kubernetes/definition.js";
 
 function testPlugin(id: string): PersonalMcpPlugin {
   return {
@@ -148,9 +150,9 @@ test("standalone port resolution uses Definition defaults and honors PORT overri
   assert.equal(resolveStandalonePort(definition, {}), 3199);
   assert.equal(resolveStandalonePort(definition, { PORT: "3200" }), 3200);
   assert.deepEqual(
-    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION]
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION]
       .map((pluginDefinition) => resolveStandalonePort(pluginDefinition, {})),
-    [3101, 3102, 3103],
+    [3101, 3102, 3103, 3104, 3105],
   );
 });
 
@@ -166,12 +168,14 @@ test("the test plugin can be replaced through the initialized registry", () => {
 test("the built-in catalog preserves plugin endpoints and status metadata", async (context) => {
   const catalog = initializeBuiltinPluginCatalog(createRuntimeConfigStore());
   assert.deepEqual(
-    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION]
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION]
       .map(({ metadata, defaultPort }) => ({ id: metadata.id, defaultPort })),
     [
       { id: "ssh", defaultPort: 3101 },
       { id: "prometheus", defaultPort: 3102 },
       { id: "mysql", defaultPort: 3103 },
+      { id: "jenkins", defaultPort: 3104 },
+      { id: "kubernetes", defaultPort: 3105 },
     ],
   );
   assert.deepEqual(
@@ -180,15 +184,19 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "ssh", path: "/ssh/mcp" },
       { id: "prometheus", path: "/prometheus/mcp" },
       { id: "mysql", path: "/mysql/mcp" },
+      { id: "jenkins", path: "/jenkins/mcp" },
+      { id: "kubernetes", path: "/kubernetes/mcp" },
     ],
   );
-  assert.deepEqual(catalog.configManagers.map(({ pluginId }) => pluginId), ["ssh", "prometheus", "mysql"]);
+  assert.deepEqual(catalog.configManagers.map(({ pluginId }) => pluginId), ["ssh", "prometheus", "mysql", "jenkins", "kubernetes"]);
   assert.deepEqual(
     catalog.profiles.map(({ pluginId, profileId }) => ({ pluginId, profileId })),
     [
       { pluginId: "ssh", profileId: "default" },
       { pluginId: "prometheus", profileId: "default" },
       { pluginId: "mysql", profileId: "default" },
+      { pluginId: "jenkins", profileId: "default" },
+      { pluginId: "kubernetes", profileId: "default" },
     ],
   );
 
@@ -213,11 +221,15 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
     { id: "ssh", path: "/ssh/mcp" },
     { id: "prometheus", path: "/prometheus/mcp" },
     { id: "mysql", path: "/mysql/mcp" },
+    { id: "jenkins", path: "/jenkins/mcp" },
+    { id: "kubernetes", path: "/kubernetes/mcp" },
   ]);
   assert.deepEqual(body.endpoints.map(({ id, name, category }) => ({ id, name, category: category.id })), [
     { id: "ssh", name: "SSH Remote Operations", category: "remote-operations" },
     { id: "prometheus", name: "Prometheus Metrics", category: "observability" },
     { id: "mysql", name: "MySQL Database", category: "databases" },
+    { id: "jenkins", name: "Jenkins", category: "ci" },
+    { id: "kubernetes", name: "Kubernetes", category: "operations" },
   ]);
   assert.deepEqual(
     catalog.mounts.map(({ plugin }) => ({ id: plugin.id, tools: plugin.tools.map(({ name }) => name) })),
@@ -225,6 +237,8 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "ssh", tools: ["ssh_get_system_snapshot", "ssh_execute_command"] },
       { id: "prometheus", tools: ["prometheus_query", "prometheus_query_range"] },
       { id: "mysql", tools: ["execute_sql"] },
+      { id: "jenkins", tools: ["jenkins_get_job", "jenkins_get_build", "jenkins_get_console_log"] },
+      { id: "kubernetes", tools: ["k8s_list_namespaces", "k8s_list_workloads", "k8s_get_workload_snapshot", "k8s_get_service_snapshot", "k8s_get_ingress_snapshot", "k8s_list_events", "k8s_get_pod_logs"] },
     ],
   );
 });

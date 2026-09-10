@@ -6,5 +6,8 @@
   "SSH_MCP_PRIVATE_KEY_PATH": "~/.ssh/agent_ops_key",
   "SSH_MCP_KNOWN_HOSTS_PATH": "~/.ssh/known_hosts",
   "PROMETHEUS_MCP_URL": "http://127.0.0.1:9090",
-  "PROMETHEUS_MCP_QUERY_TIMEOUT": "30"
+  "PROMETHEUS_MCP_QUERY_TIMEOUT": "30",
+  "KUBERNETES_KUBECONFIG_PATH": "/absolute/path/to/read-only-kubeconfig",
+  "KUBERNETES_CONTEXT": "example-readonly-context",
+  "KUBERNETES_DEFAULT_NAMESPACE": "default"
 }

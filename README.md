@@ -25,7 +25,7 @@
 - **统一网关**：通过一套服务暴露多个 Streamable HTTP MCP endpoint。
 - **可视化配置**：在 Web 控制台中管理插件配置，无需重启 Node.js 进程。
 - **按需启用**：MCP 默认关闭，可在控制台中按需开启。
-- **安全默认值**：限制 loopback 监听；SSH 强制白名单和 host key 校验；敏感运行时配置不进入 Git。
+- **安全默认值**：限制 loopback 监听；SSH 强制白名单和 host key 校验；Kubernetes 服从只读 RBAC；敏感运行时配置不进入 Git。
 - **可观测性**：提供状态、可选的插件健康检查及带 `request_id` 的策略化结构化日志。
 
 ## MCP 管理
@@ -50,7 +50,7 @@ flowchart LR
 
 - Node.js 20 或更高版本
 - npm
-- 至少一个需要接入的目标服务：SSH 主机、Prometheus 或 MySQL
+- 至少一个需要接入的目标服务
 
 ### 安装并启动
 
@@ -85,11 +85,12 @@ cp .runtime-config.example.json .runtime-config.json
 | Prometheus | `PROMETHEUS_MCP_URL`、`PROMETHEUS_MCP_QUERY_TIMEOUT` |
 | MySQL | `MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASSWORD`、`MYSQL_DATABASE` |
 | Jenkins | `JENKINS_URL`、`JENKINS_USER`、`JENKINS_TOKEN` |
+| Kubernetes | `KUBERNETES_KUBECONFIG_PATH`、`KUBERNETES_CONTEXT`、`KUBERNETES_DEFAULT_NAMESPACE` |
 
 控制台保存的值写入 `.runtime-config.json`，后续启动时优先于同名环境变量。该文件以 `0600` 权限写入并已被 `.gitignore` 排除。可通过 `MCP_RUNTIME_CONFIG_PATH` 更改保存位置。
 
 > [!TIP]
-> 各字段含义、完整示例和插件特有约束，请查看对应插件文档：[Jenkins](src/plugins/jenkins/README.md)、[SSH](src/plugins/ssh/README.md)、[Prometheus](src/plugins/prometheus/README.md)、[MySQL](src/plugins/mysql/README.md)。
+> 各字段含义、完整示例和插件特有约束，请查看对应插件文档：[Kubernetes](src/plugins/kubernetes/README.md)、[Jenkins](src/plugins/jenkins/README.md)、[SSH](src/plugins/ssh/README.md)、[Prometheus](src/plugins/prometheus/README.md)、[MySQL](src/plugins/mysql/README.md)。
 
 ## 客户端接入
 
@@ -146,7 +147,7 @@ npm start
 src/
 ├── apps/       # 网关与独立服务入口
 ├── core/       # Runtime 启动、HTTP、插件注册、结果、日志和运行时配置
-├── plugins/    # SSH、Prometheus、MySQL 插件
+├── plugins/    # 各服务的 MCP 插件
 └── ui/         # React Web 控制台
 ```
 
