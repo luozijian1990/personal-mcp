@@ -26,7 +26,9 @@
     "dev:kubernetes": "tsx src/apps/kubernetes-standalone.ts",
     "start:kubernetes": "node dist/apps/kubernetes-standalone.js",
     "dev:elasticsearch": "tsx src/apps/elasticsearch-standalone.ts",
-    "start:elasticsearch": "node dist/apps/elasticsearch-standalone.js"
+    "start:elasticsearch": "node dist/apps/elasticsearch-standalone.js",
+    "dev:skywalking": "tsx src/apps/skywalking-standalone.ts",
+    "start:skywalking": "node dist/apps/skywalking-standalone.js"
   },
   "dependencies": {
     "@kubernetes/client-node": "1.4.0",

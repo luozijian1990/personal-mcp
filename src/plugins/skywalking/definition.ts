@@ -1,0 +1,2 @@
+import type { PersonalMcpPluginDefinition } from "../../core/plugin.js"; import { createSkyWalkingPlugin, SKYWALKING_PLUGIN_METADATA } from "./index.js"; import { loadSkyWalkingPluginConfig } from "./config.js"; import { createSkyWalkingConfigManager } from "./config-manager.js";
+export const SKYWALKING_PLUGIN_DEFINITION: PersonalMcpPluginDefinition = { metadata: SKYWALKING_PLUGIN_METADATA, defaultPort: 3105, createPlugin: env => createSkyWalkingPlugin(loadSkyWalkingPluginConfig(env)), createConfigManager: createSkyWalkingConfigManager };
