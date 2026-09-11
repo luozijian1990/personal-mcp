@@ -32,6 +32,7 @@ import {
   type V1PersistentVolume,
   type V1PersistentVolumeClaim,
   type V1Pod,
+  type V1ResourceQuota,
   type V1PodDisruptionBudget,
   type V1ReplicaSet,
   type V1Service,
@@ -70,6 +71,9 @@ export interface KubernetesReadClient {
   listPods(namespace: string, labelSelector?: string, signal?: AbortSignal): Promise<KubernetesPage<V1Pod>>;
   listReplicaSets(namespace: string, signal?: AbortSignal): Promise<KubernetesPage<V1ReplicaSet>>;
   listJobs(namespace: string, signal?: AbortSignal): Promise<KubernetesPage<V1Job>>;
+  listNodes(options: KubernetesListOptions): Promise<KubernetesPage<V1Node>>;
+  listPersistentVolumeClaims(options: KubernetesListOptions): Promise<KubernetesPage<V1PersistentVolumeClaim>>;
+  listResourceQuotas(options: KubernetesListOptions): Promise<KubernetesPage<V1ResourceQuota>>;
   getNode(name: string, signal?: AbortSignal): Promise<V1Node>;
   getPersistentVolumeClaim(namespace: string, name: string, signal?: AbortSignal): Promise<V1PersistentVolumeClaim>;
   getPersistentVolume(name: string, signal?: AbortSignal): Promise<V1PersistentVolume>;
@@ -157,6 +161,9 @@ export function createKubernetesReadClient(config: KubernetesPluginConfig): Kube
     listPods: (namespace, labelSelector, signal) => withTimeout(signal, async (requestSignal) => page(await core.listNamespacedPod({ namespace, ...(labelSelector === undefined ? {} : { labelSelector }), limit: 200, timeoutSeconds: 10, watch: false }, options(requestSignal)))),
     listReplicaSets: (namespace, signal) => withTimeout(signal, async (requestSignal) => page(await apps.listNamespacedReplicaSet({ namespace, limit: 200, timeoutSeconds: 10, watch: false }, options(requestSignal)))),
     listJobs: (namespace, signal) => withTimeout(signal, async (requestSignal) => page(await batch.listNamespacedJob({ namespace, limit: 200, timeoutSeconds: 10, watch: false }, options(requestSignal)))),
+    listNodes: (input) => withTimeout(input.signal, async (signal) => page(await core.listNode(listOptions(input), options(signal)))),
+    listPersistentVolumeClaims: (input) => withTimeout(input.signal, async (signal) => page(input.allNamespaces ? await core.listPersistentVolumeClaimForAllNamespaces(listOptions(input), options(signal)) : await core.listNamespacedPersistentVolumeClaim({ namespace: requiredNamespace(input), ...listOptions(input) }, options(signal)))),
+    listResourceQuotas: (input) => withTimeout(input.signal, async (signal) => page(input.allNamespaces ? await core.listResourceQuotaForAllNamespaces(listOptions(input), options(signal)) : await core.listNamespacedResourceQuota({ namespace: requiredNamespace(input), ...listOptions(input) }, options(signal)))),
     getNode: (name, signal) => withTimeout(signal, (requestSignal) => core.readNode({ name }, options(requestSignal))),
     getPersistentVolumeClaim: (namespace, name, signal) => withTimeout(signal, (requestSignal) => core.readNamespacedPersistentVolumeClaim({ namespace, name }, options(requestSignal))),
     getPersistentVolume: (name, signal) => withTimeout(signal, (requestSignal) => core.readPersistentVolume({ name }, options(requestSignal))),

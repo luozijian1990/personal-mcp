@@ -24,12 +24,14 @@ import {
   getServiceSnapshot,
   getWorkloadSnapshot,
   listEvents,
+  listInfrastructure,
   listNamespaces,
   listWorkloads,
 } from "./queries.js";
 import type { JsonRecord } from "./summaries.js";
 import {
   eventListOutputSchema,
+  infrastructureListOutputSchema,
   ingressSnapshotOutputSchema,
   namespaceListOutputSchema,
   podLogsOutputSchema,
@@ -61,6 +63,7 @@ const scopeShape = {
 const workloadKindSchema = z.enum(["Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod"]);
 
 const listNamespacesInput = z.object({ limit: limitSchema, continueToken: continueSchema, labelSelector: selectorSchema }).strict();
+const infrastructureListInput = z.object({ ...scopeShape, limit: limitSchema, continueToken: continueSchema, labelSelector: selectorSchema }).strict().superRefine(validateScope);
 const listWorkloadsInput = z.object({ ...scopeShape, kind: workloadKindSchema, labelSelector: selectorSchema, limit: limitSchema, continueToken: continueSchema }).strict().superRefine(validateScope);
 const workloadSnapshotInput = z.object({ namespace: namespaceSchema.optional(), kind: workloadKindSchema, name: nameSchema }).strict();
 const serviceSnapshotInput = z.object({ namespace: namespaceSchema.optional(), name: nameSchema }).strict();
@@ -82,6 +85,9 @@ export function createKubernetesPlugin(options: { readonly config?: KubernetesPl
   return {
     ...KUBERNETES_PLUGIN_METADATA,
     tools: [
+      toolMeta("k8s_list_nodes", "列出节点调度证据"),
+      toolMeta("k8s_list_pvcs", "列出 PVC"),
+      toolMeta("k8s_list_resource_quotas", "列出资源配额"),
       toolMeta("k8s_list_namespaces", "列出 Namespace"),
       toolMeta("k8s_list_workloads", "列出工作负载"),
       toolMeta("k8s_get_workload_snapshot", "获取工作负载诊断快照"),
@@ -111,6 +117,24 @@ export function createKubernetesPlugin(options: { readonly config?: KubernetesPl
 function createServer(config: KubernetesPluginConfig, getClient: () => KubernetesReadClient): McpServer {
   const server = new McpServer({ name: `${KUBERNETES_PLUGIN_ID}-mcp-server`, version: "0.1.0" });
   const annotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true } as const;
+
+  server.registerTool("k8s_list_nodes", {
+    title: "List Kubernetes nodes",
+    description: "List cluster-scoped Node labels, taints, conditions and capacity for Pending Pod scheduling investigation, even when no Pod has a nodeName. Allocatable is not currently free capacity. Supports cursor pagination.",
+    inputSchema: listNamespacesInput, outputSchema: infrastructureListOutputSchema, annotations,
+  }, async (input) => result(() => listInfrastructure(getClient(), config.defaultNamespace, "Node", input)));
+
+  server.registerTool("k8s_list_pvcs", {
+    title: "List Kubernetes persistent volume claims",
+    description: "List PVC phase, requested storage, binding and StorageClass independently of Pods. Supports namespace scope, explicit allNamespaces and cursor pagination.",
+    inputSchema: infrastructureListInput, outputSchema: infrastructureListOutputSchema, annotations,
+  }, async (input) => result(() => listInfrastructure(getClient(), config.defaultNamespace, "PersistentVolumeClaim", input)));
+
+  server.registerTool("k8s_list_resource_quotas", {
+    title: "List Kubernetes resource quotas",
+    description: "List ResourceQuota hard limits, used resources and scopes, including when admission prevents Pod creation. Supports namespace scope, explicit allNamespaces and cursor pagination.",
+    inputSchema: infrastructureListInput, outputSchema: infrastructureListOutputSchema, annotations,
+  }, async (input) => result(() => listInfrastructure(getClient(), config.defaultNamespace, "ResourceQuota", input)));
 
   server.registerTool("k8s_list_namespaces", {
     title: "List Kubernetes namespaces",

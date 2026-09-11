@@ -36,6 +36,7 @@ import {
   podSummary,
   pvSummary,
   pvcSummary,
+  resourceQuotaSummary,
   serviceSummary,
   storageClassSummary,
   workloadSummary,
@@ -101,6 +102,35 @@ export async function listWorkloads(
   }));
 }
 
+export async function listInfrastructure(
+  client: KubernetesReadClient,
+  defaultNamespace: string,
+  kind: "Node" | "PersistentVolumeClaim" | "ResourceQuota",
+  input: QueryScope & { readonly limit: number; readonly continueToken?: string | undefined; readonly labelSelector?: string | undefined },
+): Promise<JsonRecord> {
+  if (kind === "Node" && (input.namespace !== undefined || input.allNamespaces === true)) throw new Error("Nodes are cluster-scoped; omit namespace and allNamespaces.");
+  const scope = kind === "Node" ? {} : resolveScope(defaultNamespace, input);
+  const options = { ...scope, limit: input.limit, continueToken: input.continueToken, labelSelector: input.labelSelector };
+  const summarizePage = <T>(page: KubernetesPage<T>, summarize: (item: T) => JsonRecord): JsonRecord => {
+    const result = compact({
+      status: page.continueToken === undefined ? "complete" : "truncated",
+      kind, scope, count: page.items.length, items: page.items.map(summarize),
+      continueToken: page.continueToken, resourceVersion: page.resourceVersion,
+    });
+    // A server cursor advances past the entire page. Never trim items while keeping that cursor.
+    if (Buffer.byteLength(JSON.stringify(result)) > KUBERNETES_MAX_RESPONSE_BYTES) {
+      if (input.limit === 1) throw new Error("A single resource summary exceeded the 256 KiB response budget; this resource cannot be returned by this list tool.");
+      throw new Error(`Page exceeded the 256 KiB response budget. Retry the same request with the same continueToken (omit it again for the first page), unchanged filters and limit=${Math.max(1, Math.floor(input.limit / 2))}. No items or next-page cursor were returned.`);
+    }
+    return result;
+  };
+  switch (kind) {
+    case "Node": return summarizePage(await client.listNodes(options), nodeSummary);
+    case "PersistentVolumeClaim": return summarizePage(await client.listPersistentVolumeClaims(options), pvcSummary);
+    case "ResourceQuota": return summarizePage(await client.listResourceQuotas(options), resourceQuotaSummary);
+  }
+}
+
 export async function listEvents(
   client: KubernetesReadClient,
   defaultNamespace: string,
@@ -146,7 +176,7 @@ export async function getWorkloadSnapshot(
       ...pods.map((pod) => pod.metadata?.uid),
       ...(related.data?.controllers.map((controller) => controller.uid) ?? []),
     ].filter((uid): uid is string => typeof uid === "string"));
-    const [events, serviceObjects, hpas, pdbs, networkPolicies, nodes, storage] = await Promise.all([
+    const [events, serviceObjects, hpas, pdbs, networkPolicies, nodes, storage, resourceQuotas] = await Promise.all([
       pageSection(
         () => limitedClient.listEvents({ namespace, limit: 200, signal }),
         (items) => items.filter((event) => event.regarding?.uid !== undefined && targetUids.has(event.regarding.uid)).map(eventSummary),
@@ -167,6 +197,7 @@ export async function getWorkloadSnapshot(
       related.data !== undefined
         ? section(async () => await storageEvidence(limitedClient, namespace, pods, signal))
         : Promise.resolve(dependencyFailure<JsonRecord>("Related Pods are unavailable.")),
+      pageSection(() => limitedClient.listResourceQuotas({ namespace, limit: 200, signal }), (items) => items.map(resourceQuotaSummary)),
     ]);
     const services = mapSection(serviceObjects, (items) => items.map(serviceSummary));
     const endpointSlicePages = serviceObjects?.data !== undefined
@@ -189,6 +220,7 @@ export async function getWorkloadSnapshot(
       networkPolicies,
       nodes,
       storage,
+      resourceQuotas,
       references: { status: "ok", data: { configMapsAndSecrets: "names_and_keys_only", referenceChecks: "not_performed" } },
     };
     return fitResponse({

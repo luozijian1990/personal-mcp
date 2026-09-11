@@ -20,9 +20,12 @@ V1 面向 Kubernetes 1.23+ 的标准资源，不支持 CRD、Gateway API、in-cl
 
 | 工具 | 用途 | 主要限制 |
 | --- | --- | --- |
+| `k8s_list_nodes` | 独立列出 Node 标签、taints、条件、capacity/allocatable | 集群级；支持分页，不依赖 Pod 已调度 |
+| `k8s_list_pvcs` | 独立列出 PVC 状态、请求容量、绑定 PV 与 StorageClass 名称 | 支持 namespace、显式 allNamespaces 和分页 |
+| `k8s_list_resource_quotas` | 列出 ResourceQuota hard/used、scopes 和 scopeSelector | 支持 namespace、显式 allNamespaces 和分页 |
 | `k8s_list_namespaces` | 分页列出 Namespace 摘要 | 默认 50，最大 200 |
 | `k8s_list_workloads` | 按 kind 列出 Deployment、StatefulSet、DaemonSet、Job、CronJob 或 Pod | 全集群查询必须显式设置 `allNamespaces: true` |
-| `k8s_get_workload_snapshot` | 聚合工作负载、Pod、Event、Service、HPA、PDB、存储、网络策略及 Node 证据 | 关联查询可部分成功 |
+| `k8s_get_workload_snapshot` | 聚合工作负载、Pod、Event、Service、HPA、PDB、存储、网络策略、Node 及 ResourceQuota 证据 | 关联查询可部分成功 |
 | `k8s_get_service_snapshot` | 追踪 Service selector、EndpointSlice、Pod 和引用它的 Ingress | 不执行连通性探测 |
 | `k8s_get_ingress_snapshot` | 按名称或 host/path 反查 ingress-nginx 声明链路 | host-only 查询需要跨 namespace RBAC |
 | `k8s_list_events` | 按 namespace、对象、类型和时间窗口过滤 Event | Event 是有保留期的辅助证据 |
@@ -120,6 +123,28 @@ npm run dev:kubernetes
   }
 }
 ```
+
+## Pending 与配置排查
+
+Pod 和工作负载模板摘要包含容器端口、volumeMounts、imagePullPolicy、imagePullSecrets 引用，以及 nodeSelector、affinity、tolerations、topologySpreadConstraints 等调度信息。模板也包含 initContainers；即使尚未创建 Pod，也可检查模板配置。
+
+探针包含 HTTP host/path/port/scheme、TCP host/port、gRPC port/service 和时间参数。HTTP header 保留名称、隐藏值；exec 探针仅标记存在并隐藏命令，避免暴露内嵌凭据。所有信息都是声明配置，不能证明应用实际监听或探针可达。
+
+工作负载快照新增 `sections.resourceQuotas`，独立于关联 Pod 查询；配额读取被 RBAC 拒绝时返回 `partial`，保留其余证据。旧身份需要增加 `resourcequotas` 的只读权限，参考更新后的 RBAC 示例；插件不会应用权限变更。
+
+未调度的 Pod 没有 nodeName，因此快照中的 nodes 仍可能为空；调用 `k8s_list_nodes` 查看候选节点，结合 Pod 调度约束和 Events 分析。allocatable 是可分配总量，不代表当前剩余容量。
+
+新增独立查询示例：
+
+```json
+{"name":"k8s_list_nodes","arguments":{"labelSelector":"pool=apps","limit":50}}
+{"name":"k8s_list_pvcs","arguments":{"namespace":"apps","limit":50}}
+{"name":"k8s_list_resource_quotas","arguments":{"namespace":"apps","limit":50}}
+```
+
+列表默认 50 条、最多 200 条；收到 continueToken 后，将其作为下一次调用参数并保持原查询条件。PVC/Quota 跨 namespace 需显式设置 `allNamespaces: true`，不能同时指定 namespace。独立 PVC 查询只返回 PVC 摘要及 PV/StorageClass 引用，不自动读取关联对象。
+
+这三个独立列表不会裁掉页内资源：整页摘要超过 256 KiB 时返回 Tool 错误，不返回部分 items 或下一页 token。按错误提示缩小 limit，保留原 continueToken 和过滤条件重试；首批请求仍省略 continueToken。单个资源摘要也超限时明确报错，不能将其视为资源不存在。
 
 ## 安全与数据处理
 

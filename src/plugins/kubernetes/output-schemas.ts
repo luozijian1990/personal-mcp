@@ -60,6 +60,7 @@ export const workloadSnapshotOutputSchema = z.object({
     networkPolicies: section,
     nodes: section,
     storage: section,
+    resourceQuotas: section,
     references: section,
   }).optional(),
   truncation,
@@ -111,3 +112,8 @@ export const podLogsOutputSchema = z.object({
   log: z.string().optional(),
   truncation,
 }).loose();
+
+export const infrastructureListOutputSchema = namespaceListOutputSchema.extend({
+  kind: z.enum(["Node", "PersistentVolumeClaim", "ResourceQuota"]).optional(),
+  scope: z.object({ namespace: z.string().optional(), allNamespaces: z.boolean().optional() }).optional(),
+});

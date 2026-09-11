@@ -7,9 +7,13 @@ import { startHttpServer } from "../../core/start-http-server.js";
 import type { KubernetesReadClient } from "./client.js";
 import { createKubernetesPlugin } from "./index.js";
 
-test("Kubernetes MCP lists the seven read-only tools and returns bounded structured logs", async (context) => {
+test("Kubernetes MCP lists the ten read-only tools and returns bounded structured logs", async (context) => {
   const calls: unknown[] = [];
   const client = fakeClient({
+    listNodes: async (input) => input.limit === 200 ? {
+      items: Array.from({ length: 200 }, (_, i) => ({ metadata: { name: `node-${i}`, labels: Object.fromEntries(Array.from({ length: 35 }, (_, j) => [`label-${j}`, "x".repeat(50)])) } })),
+      continueToken: "unsafe-next-page",
+    } : { items: [] },
     getPodLogs: async (input) => {
       calls.push(input);
       return "line one\nline two\n";
@@ -24,12 +28,27 @@ test("Kubernetes MCP lists the seven read-only tools and returns bounded structu
   context.after(async () => { runtime.server.close(); await once(runtime.server, "close"); });
 
   const listed = await mcpCall(runtime.url, { jsonrpc: "2.0", id: 1, method: "tools/list" });
-  for (const name of ["k8s_list_namespaces", "k8s_list_workloads", "k8s_get_workload_snapshot", "k8s_get_service_snapshot", "k8s_get_ingress_snapshot", "k8s_list_events", "k8s_get_pod_logs"]) assert.match(listed, new RegExp(name));
-  assert.equal((listed.match(/readOnlyHint/g) ?? []).length, 7);
+  for (const name of ["k8s_list_nodes", "k8s_list_pvcs", "k8s_list_resource_quotas", "k8s_list_namespaces", "k8s_list_workloads", "k8s_get_workload_snapshot", "k8s_get_service_snapshot", "k8s_get_ingress_snapshot", "k8s_list_events", "k8s_get_pod_logs"]) assert.match(listed, new RegExp(name));
+  assert.equal((listed.match(/readOnlyHint/g) ?? []).length, 10);
   assert.match(listed, /continueToken/);
   assert.match(listed, /endpointSlices/);
   assert.match(listed, /backendServices/);
   assert.match(listed, /tailLines/);
+
+  for (const name of ["k8s_list_nodes", "k8s_list_pvcs", "k8s_list_resource_quotas"]) {
+    const response = await mcpCall(runtime.url, { jsonrpc: "2.0", id: name, method: "tools/call", params: { name, arguments: {} } });
+    assert.match(response, /structuredContent/);
+    assert.doesNotMatch(response, /"isError":true/);
+    assert.match(response, /"items":\[\]/);
+  }
+  const invalidScope = await mcpCall(runtime.url, { jsonrpc: "2.0", id: "invalid", method: "tools/call", params: { name: "k8s_list_pvcs", arguments: { namespace: "apps", allNamespaces: true } } });
+  assert.match(invalidScope, /mutually exclusive/);
+
+  const oversized = await mcpCall(runtime.url, { jsonrpc: "2.0", id: "oversized", method: "tools/call", params: { name: "k8s_list_nodes", arguments: { limit: 200, continueToken: "original-page" } } });
+  assert.match(oversized, /"isError":true/);
+  assert.match(oversized, /same continueToken/);
+  assert.match(oversized, /limit=100/);
+  assert.doesNotMatch(oversized, /unsafe-next-page|"structuredContent"/);
 
   const logs = await mcpCall(runtime.url, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "k8s_get_pod_logs", arguments: { pod: "api-1", container: "api" } } });
   assert.match(logs, /line one/);
@@ -55,6 +74,7 @@ function fakeClient(overrides: Partial<KubernetesReadClient>): KubernetesReadCli
     getVersion: async () => ({ major: "1", minor: "23", gitVersion: "v1.23.17", gitCommit: "test", gitTreeState: "clean", buildDate: "", goVersion: "", compiler: "", platform: "" }),
     getApiVersions: async () => ({}), listNamespaces: emptyPage, listWorkloads: emptyPage,
     getWorkload: missing, listPods: emptyPage, listReplicaSets: emptyPage, listJobs: emptyPage,
+    listNodes: emptyPage, listPersistentVolumeClaims: emptyPage, listResourceQuotas: emptyPage,
     getNode: missing, getPersistentVolumeClaim: missing, getPersistentVolume: missing,
     getStorageClass: missing, listServices: emptyPage, getService: missing,
     listEndpointSlices: emptyPage, listIngresses: emptyPage, getIngress: missing,

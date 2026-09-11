@@ -10,7 +10,7 @@ import type {
 } from "@kubernetes/client-node";
 
 import type { KubernetesReadClient } from "./client.js";
-import { getIngressSnapshot, getWorkloadSnapshot, listWorkloads } from "./queries.js";
+import { getIngressSnapshot, getWorkloadSnapshot, listInfrastructure, listWorkloads } from "./queries.js";
 
 test("workload snapshot follows owner UIDs, redacts literals and preserves partial RBAC evidence", async () => {
   const deployment = { metadata: { name: "api", namespace: "apps", uid: "dep-1" }, spec: { replicas: 2, template: { metadata: {}, spec: { containers: [{ name: "api", image: "api:1", env: [{ name: "PASSWORD", value: "hidden" }] }] } } }, status: { replicas: 2, readyReplicas: 1 } } as V1Deployment;
@@ -158,6 +158,7 @@ function fakeClient(overrides: Partial<KubernetesReadClient>): KubernetesReadCli
     listPods: emptyPage,
     listReplicaSets: emptyPage,
     listJobs: emptyPage,
+    listNodes: emptyPage, listPersistentVolumeClaims: emptyPage, listResourceQuotas: emptyPage,
     getNode: missing,
     getPersistentVolumeClaim: missing,
     getPersistentVolume: missing,
@@ -175,3 +176,85 @@ function fakeClient(overrides: Partial<KubernetesReadClient>): KubernetesReadCli
     ...overrides,
   } as KubernetesReadClient;
 }
+
+test("Pending Pods expose quotas without a node assignment and allow independent node/PVC discovery", async () => {
+  const client = fakeClient({
+    getWorkload: async () => ({ metadata: { name: "pending", uid: "p" }, spec: { containers: [{ name: "api" }] }, status: { phase: "Pending" } }),
+    getNode: async () => { assert.fail("Unassigned Pod must not invent a Node"); },
+    listResourceQuotas: async (options) => {
+      assert.equal(options.namespace, "apps");
+      return { items: [{ metadata: { name: "budget" }, status: { hard: { "requests.cpu": "4" }, used: { "requests.cpu": "4" } } }], continueToken: "quota-next" };
+    },
+    listNodes: async (options) => {
+      assert.equal(options.namespace, undefined);
+      assert.equal(options.labelSelector, "pool=apps");
+      assert.equal(options.continueToken, "node-page");
+      return { items: [{ metadata: { name: "worker" }, spec: { taints: [{ key: "dedicated", effect: "NoSchedule" }] }, status: { allocatable: { cpu: "4" } } }], continueToken: "node-next" };
+    },
+    listPersistentVolumeClaims: async (options) => {
+      assert.equal(options.allNamespaces, true);
+      assert.equal(options.namespace, undefined);
+      return { items: [{ metadata: { name: "data", namespace: "apps" }, status: { phase: "Pending" }, spec: { storageClassName: "fast", resources: { requests: { storage: "10Gi" } } } }] };
+    },
+  });
+  const snapshot = await getWorkloadSnapshot(client, "apps", { kind: "Pod", name: "pending" });
+  const sections = snapshot.sections as Record<string, { status: string; data: unknown }>;
+  assert.deepEqual(sections.nodes?.data, []);
+  assert.equal(sections.resourceQuotas?.status, "truncated");
+  assert.equal(snapshot.status, "partial");
+  assert.match(JSON.stringify(sections.resourceQuotas), /"used":\{"requests.cpu":"4"\}/);
+  const nodes = await listInfrastructure(client, "apps", "Node", { limit: 1, continueToken: "node-page", labelSelector: "pool=apps" });
+  assert.equal(nodes.continueToken, "node-next");
+  assert.equal(nodes.status, "truncated");
+  assert.match(JSON.stringify(nodes), /NoSchedule/);
+  const pvcs = await listInfrastructure(client, "apps", "PersistentVolumeClaim", { limit: 50, allNamespaces: true });
+  assert.match(JSON.stringify(pvcs), /Pending/);
+  const quotas = await listInfrastructure(client, "apps", "ResourceQuota", { limit: 50 });
+  assert.equal(quotas.continueToken, "quota-next");
+  await assert.rejects(listInfrastructure(client, "apps", "ResourceQuota", { limit: 50, namespace: "apps", allNamespaces: true }), /mutually exclusive/);
+});
+
+test("quota RBAC failure preserves workload evidence even if Pod discovery fails", async () => {
+  const forbidden = async () => { throw Object.assign(new Error("denied"), { code: 403 }); };
+  const client = fakeClient({
+    getWorkload: async () => ({ metadata: { name: "api" } }),
+    listPods: forbidden,
+    listResourceQuotas: forbidden,
+  });
+  const snapshot = await getWorkloadSnapshot(client, "apps", { kind: "Deployment", name: "api" });
+  const sections = snapshot.sections as Record<string, { status: string }>;
+  assert.equal(snapshot.status, "partial");
+  assert.equal(sections.workload?.status, "ok");
+  assert.equal(sections.resourceQuotas?.status, "forbidden");
+  await assert.rejects(listInfrastructure(client, "apps", "ResourceQuota", { limit: 50 }), { code: 403 });
+});
+
+test("oversized infrastructure pages require retrying the same cursor without skipping objects", async () => {
+  const labels = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [`label-${i}`, "x".repeat(50)]));
+  const resources = Array.from({ length: 201 }, (_, i) => ({ metadata: { name: `resource-${i}`, labels } }));
+  const readPage = async (options: Parameters<KubernetesReadClient["listNodes"]>[0]) => {
+    const start = Number(options.continueToken ?? "0");
+    const end = Math.min(start + options.limit, resources.length);
+    return { items: resources.slice(start, end), ...(end < resources.length ? { continueToken: String(end) } : {}) };
+  };
+  const client = fakeClient({ listNodes: readPage, listPersistentVolumeClaims: readPage, listResourceQuotas: readPage });
+  for (const kind of ["Node", "PersistentVolumeClaim", "ResourceQuota"] as const) {
+    await assert.rejects(listInfrastructure(client, "apps", kind, { limit: 200, continueToken: "1" }), /same continueToken.*limit=100/);
+    const seen: string[] = [];
+    let cursor: string | undefined = "1";
+    do {
+      const page = await listInfrastructure(client, "apps", kind, { limit: 100, continueToken: cursor });
+      const items = page.items as Array<{ name: string }>;
+      assert.equal(page.count, items.length);
+      assert.ok(Buffer.byteLength(JSON.stringify(page)) <= 256 * 1024);
+      seen.push(...items.map((item) => item.name));
+      cursor = page.continueToken as string | undefined;
+    } while (cursor !== undefined);
+    assert.deepEqual(seen, resources.slice(1).map((item) => item.metadata.name));
+  }
+});
+
+test("an oversized single resource fails explicitly rather than returning a misleading empty page", async () => {
+  const client = fakeClient({ listNodes: async () => ({ items: [{ metadata: { name: "huge", labels: { data: "x".repeat(300_000) } } }] }) });
+  await assert.rejects(listInfrastructure(client, "apps", "Node", { limit: 1 }), /single resource.*256 KiB/);
+});

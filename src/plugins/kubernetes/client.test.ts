@@ -10,8 +10,10 @@ import { createKubernetesReadClient, validateKubernetesConfig } from "./client.j
 
 test("official Kubernetes client uses the explicit context and sends GET-only requests", async (context) => {
   const methods: string[] = [];
+  const urls: string[] = [];
   const server = createServer((request, response) => {
     methods.push(request.method ?? "");
+    urls.push(request.url ?? "");
     response.setHeader("content-type", "application/json");
     if (request.url?.startsWith("/version")) {
       response.end(JSON.stringify({ major: "1", minor: "23", gitVersion: "v1.23.17", gitCommit: "test", gitTreeState: "clean", buildDate: "2022-01-01T00:00:00Z", goVersion: "go1.17", compiler: "gc", platform: "darwin/arm64" }));
@@ -33,7 +35,20 @@ test("official Kubernetes client uses the explicit context and sends GET-only re
   const client = createKubernetesReadClient(config);
   assert.equal((await client.getVersion()).gitVersion, "v1.23.17");
   assert.equal((await client.listNamespaces({ limit: 50 })).items[0]?.metadata?.name, "apps");
-  assert.deepEqual(methods, ["GET", "GET"]);
+  await client.listNodes({ limit: 2, continueToken: "next-page", labelSelector: "pool=apps" });
+  await client.listPersistentVolumeClaims({ namespace: "apps", limit: 3 });
+  await client.listPersistentVolumeClaims({ allNamespaces: true, limit: 3 });
+  await client.listResourceQuotas({ namespace: "apps", limit: 4 });
+  await client.listResourceQuotas({ allNamespaces: true, limit: 4 });
+  assert.deepEqual(methods, Array(7).fill("GET"));
+  const parsed = urls.map((url) => new URL(url, "http://localhost"));
+  assert.deepEqual(parsed.slice(2).map((url) => url.pathname), [
+    "/api/v1/nodes", "/api/v1/namespaces/apps/persistentvolumeclaims",
+    "/api/v1/persistentvolumeclaims", "/api/v1/namespaces/apps/resourcequotas", "/api/v1/resourcequotas",
+  ]);
+  assert.equal(parsed[2]?.searchParams.get("continue"), "next-page");
+  assert.equal(parsed[2]?.searchParams.get("labelSelector"), "pool=apps");
+  assert.equal(parsed[2]?.searchParams.get("limit"), "2");
 });
 
 test("configuration rejects a context that is not present in the explicit kubeconfig", async (context) => {

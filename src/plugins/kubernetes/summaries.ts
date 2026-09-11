@@ -10,6 +10,8 @@ import type {
   V1PersistentVolume,
   V1PersistentVolumeClaim,
   V1Pod,
+  V1PodSpec,
+  V1ResourceQuota,
   V1PodDisruptionBudget,
   V1Service,
   V1StorageClass,
@@ -46,23 +48,23 @@ export function workloadSummary(kind: WorkloadKind, workload: KubernetesWorkload
   switch (kind) {
     case "Deployment": {
       const value = workload as import("@kubernetes/client-node").V1Deployment;
-      return compact({ ...base, desired: value.spec?.replicas, current: value.status?.replicas, ready: value.status?.readyReplicas, available: value.status?.availableReplicas, updated: value.status?.updatedReplicas, unavailable: value.status?.unavailableReplicas, conditions: summarizeConditions(value.status?.conditions), podTemplate: summarizePodTemplate(value.spec?.template.spec?.containers, value.spec?.template.spec?.volumes) });
+      return compact({ ...base, desired: value.spec?.replicas, current: value.status?.replicas, ready: value.status?.readyReplicas, available: value.status?.availableReplicas, updated: value.status?.updatedReplicas, unavailable: value.status?.unavailableReplicas, conditions: summarizeConditions(value.status?.conditions), podTemplate: summarizePodTemplate(value.spec?.template.spec) });
     }
     case "StatefulSet": {
       const value = workload as import("@kubernetes/client-node").V1StatefulSet;
-      return compact({ ...base, serviceName: value.spec?.serviceName, desired: value.spec?.replicas, current: value.status?.currentReplicas, ready: value.status?.readyReplicas, available: value.status?.availableReplicas, updated: value.status?.updatedReplicas, currentRevision: value.status?.currentRevision, updateRevision: value.status?.updateRevision, conditions: summarizeConditions(value.status?.conditions), podTemplate: summarizePodTemplate(value.spec?.template.spec?.containers, value.spec?.template.spec?.volumes) });
+      return compact({ ...base, serviceName: value.spec?.serviceName, desired: value.spec?.replicas, current: value.status?.currentReplicas, ready: value.status?.readyReplicas, available: value.status?.availableReplicas, updated: value.status?.updatedReplicas, currentRevision: value.status?.currentRevision, updateRevision: value.status?.updateRevision, conditions: summarizeConditions(value.status?.conditions), podTemplate: summarizePodTemplate(value.spec?.template.spec) });
     }
     case "DaemonSet": {
       const value = workload as import("@kubernetes/client-node").V1DaemonSet;
-      return compact({ ...base, desired: value.status?.desiredNumberScheduled, current: value.status?.currentNumberScheduled, ready: value.status?.numberReady, available: value.status?.numberAvailable, unavailable: value.status?.numberUnavailable, misscheduled: value.status?.numberMisscheduled, updated: value.status?.updatedNumberScheduled, conditions: summarizeConditions(value.status?.conditions), podTemplate: summarizePodTemplate(value.spec?.template.spec?.containers, value.spec?.template.spec?.volumes) });
+      return compact({ ...base, desired: value.status?.desiredNumberScheduled, current: value.status?.currentNumberScheduled, ready: value.status?.numberReady, available: value.status?.numberAvailable, unavailable: value.status?.numberUnavailable, misscheduled: value.status?.numberMisscheduled, updated: value.status?.updatedNumberScheduled, conditions: summarizeConditions(value.status?.conditions), podTemplate: summarizePodTemplate(value.spec?.template.spec) });
     }
     case "Job": {
       const value = workload as import("@kubernetes/client-node").V1Job;
-      return compact({ ...base, parallelism: value.spec?.parallelism, completions: value.spec?.completions, active: value.status?.active, ready: value.status?.ready, succeeded: value.status?.succeeded, failed: value.status?.failed, startTime: iso(value.status?.startTime), completionTime: iso(value.status?.completionTime), conditions: summarizeConditions(value.status?.conditions), podTemplate: summarizePodTemplate(value.spec?.template.spec?.containers, value.spec?.template.spec?.volumes) });
+      return compact({ ...base, parallelism: value.spec?.parallelism, completions: value.spec?.completions, active: value.status?.active, ready: value.status?.ready, succeeded: value.status?.succeeded, failed: value.status?.failed, startTime: iso(value.status?.startTime), completionTime: iso(value.status?.completionTime), conditions: summarizeConditions(value.status?.conditions), podTemplate: summarizePodTemplate(value.spec?.template.spec) });
     }
     case "CronJob": {
       const value = workload as import("@kubernetes/client-node").V1CronJob;
-      return compact({ ...base, schedule: value.spec?.schedule, suspend: value.spec?.suspend, concurrencyPolicy: value.spec?.concurrencyPolicy, lastScheduleTime: iso(value.status?.lastScheduleTime), lastSuccessfulTime: iso(value.status?.lastSuccessfulTime), activeJobs: value.status?.active?.map((reference) => compact({ kind: reference.kind, namespace: reference.namespace, name: reference.name, uid: reference.uid })), podTemplate: summarizePodTemplate(value.spec?.jobTemplate.spec?.template.spec?.containers, value.spec?.jobTemplate.spec?.template.spec?.volumes) });
+      return compact({ ...base, schedule: value.spec?.schedule, suspend: value.spec?.suspend, concurrencyPolicy: value.spec?.concurrencyPolicy, lastScheduleTime: iso(value.status?.lastScheduleTime), lastSuccessfulTime: iso(value.status?.lastSuccessfulTime), activeJobs: value.status?.active?.map((reference) => compact({ kind: reference.kind, namespace: reference.namespace, name: reference.name, uid: reference.uid })), podTemplate: summarizePodTemplate(value.spec?.jobTemplate.spec?.template.spec) });
     }
     case "Pod": return podSummary(workload as V1Pod);
   }
@@ -82,7 +84,7 @@ export function podSummary(pod: V1Pod): JsonRecord {
     conditions: summarizeConditions(pod.status?.conditions),
     containers: (pod.spec?.containers ?? []).map((container) => summarizeContainer(container, statusByName.get(container.name))),
     initContainers: (pod.spec?.initContainers ?? []).map((container) => summarizeContainer(container, (pod.status?.initContainerStatuses ?? []).find((status) => status.name === container.name))),
-    volumes: summarizeVolumes(pod.spec?.volumes),
+    ...podSpecSummary(pod.spec),
     ownerReferences: pod.metadata?.ownerReferences?.map((owner) => compact({ kind: owner.kind, name: owner.name, uid: owner.uid, controller: owner.controller })),
   });
 }
@@ -91,6 +93,9 @@ function summarizeContainer(container: V1Container, status?: import("@kubernetes
   return compact({
     name: container.name,
     image: container.image,
+    imagePullPolicy: container.imagePullPolicy,
+    ports: container.ports?.map((port) => compact({ name: port.name, containerPort: port.containerPort, hostPort: port.hostPort, hostIP: port.hostIP, protocol: port.protocol })),
+    volumeMounts: container.volumeMounts?.map((mount) => compact({ name: mount.name, mountPath: mount.mountPath, subPath: mount.subPath, subPathExpr: mount.subPathExpr, readOnly: mount.readOnly, mountPropagation: mount.mountPropagation })),
     command: container.command,
     args: container.args,
     ready: status?.ready,
@@ -126,6 +131,10 @@ function probeSummary(probe?: import("@kubernetes/client-node").V1Probe): JsonRe
   if (probe === undefined) return undefined;
   return compact({
     type: probe.httpGet !== undefined ? "httpGet" : probe.tcpSocket !== undefined ? "tcpSocket" : probe.exec !== undefined ? "exec" : probe.grpc !== undefined ? "grpc" : "unknown",
+    httpGet: probe.httpGet === undefined ? undefined : compact({ host: probe.httpGet.host, path: probe.httpGet.path, port: probe.httpGet.port, scheme: probe.httpGet.scheme, httpHeaders: probe.httpGet.httpHeaders?.map((header) => ({ name: header.name, value: "[REDACTED]" })) }),
+    tcpSocket: probe.tcpSocket === undefined ? undefined : compact({ host: probe.tcpSocket.host, port: probe.tcpSocket.port }),
+    grpc: probe.grpc === undefined ? undefined : compact({ port: probe.grpc.port, service: probe.grpc.service }),
+    exec: probe.exec === undefined ? undefined : { command: "[REDACTED]" },
     initialDelaySeconds: probe.initialDelaySeconds,
     periodSeconds: probe.periodSeconds,
     timeoutSeconds: probe.timeoutSeconds,
@@ -134,11 +143,40 @@ function probeSummary(probe?: import("@kubernetes/client-node").V1Probe): JsonRe
   });
 }
 
-function summarizePodTemplate(containers?: readonly V1Container[], volumes?: readonly import("@kubernetes/client-node").V1Volume[]): JsonRecord {
+function summarizePodTemplate(spec?: V1PodSpec): JsonRecord {
   return {
-    containers: (containers ?? []).map((container) => summarizeContainer(container)),
-    volumes: summarizeVolumes(volumes),
+    containers: (spec?.containers ?? []).map((container) => summarizeContainer(container)),
+    initContainers: (spec?.initContainers ?? []).map((container) => summarizeContainer(container)),
+    ...podSpecSummary(spec),
   };
+}
+
+// Only apply to the explicitly selected scheduling/quota fields below, never whole resources.
+// SDK models have class prototypes (and Dates); MCP structured content requires plain JSON.
+function plainEvidence(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(plainEvidence);
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => [key, plainEvidence(item)]));
+  }
+  return value;
+}
+
+function podSpecSummary(spec?: V1PodSpec): JsonRecord {
+  return compact({
+    volumes: summarizeVolumes(spec?.volumes),
+    imagePullSecrets: spec?.imagePullSecrets?.map((reference) => ({ name: reference.name })),
+    serviceAccountName: spec?.serviceAccountName,
+    schedulerName: spec?.schedulerName,
+    nodeSelector: spec?.nodeSelector,
+    affinity: plainEvidence(spec?.affinity),
+    tolerations: plainEvidence(spec?.tolerations),
+    topologySpreadConstraints: plainEvidence(spec?.topologySpreadConstraints),
+    priorityClassName: spec?.priorityClassName,
+    schedulingGates: plainEvidence(spec?.schedulingGates),
+  });
 }
 
 function summarizeVolumes(volumes?: readonly import("@kubernetes/client-node").V1Volume[]): readonly JsonRecord[] {
@@ -230,10 +268,15 @@ export function nodeSummary(node: V1Node): JsonRecord {
   return compact({
     ...metadataSummary(node.metadata),
     unschedulable: node.spec?.unschedulable,
+    taints: plainEvidence(node.spec?.taints),
     conditions: summarizeConditions(node.status?.conditions),
     capacity: node.status?.capacity,
     allocatable: node.status?.allocatable,
   });
+}
+
+export function resourceQuotaSummary(quota: V1ResourceQuota): JsonRecord {
+  return compact({ ...metadataSummary(quota.metadata), hard: quota.status?.hard ?? quota.spec?.hard, used: quota.status?.used, scopes: quota.spec?.scopes, scopeSelector: plainEvidence(quota.spec?.scopeSelector) });
 }
 
 export function pvcSummary(pvc: V1PersistentVolumeClaim): JsonRecord {

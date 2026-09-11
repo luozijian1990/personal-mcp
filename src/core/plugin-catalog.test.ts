@@ -244,7 +244,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "prometheus", tools: ["prometheus_query", "prometheus_query_range"] },
       { id: "mysql", tools: ["execute_sql"] },
       { id: "jenkins", tools: ["jenkins_get_job", "jenkins_get_build", "jenkins_get_console_log"] },
-      { id: "kubernetes", tools: ["k8s_list_namespaces", "k8s_list_workloads", "k8s_get_workload_snapshot", "k8s_get_service_snapshot", "k8s_get_ingress_snapshot", "k8s_list_events", "k8s_get_pod_logs"] },
+      { id: "kubernetes", tools: ["k8s_list_nodes", "k8s_list_pvcs", "k8s_list_resource_quotas", "k8s_list_namespaces", "k8s_list_workloads", "k8s_get_workload_snapshot", "k8s_get_service_snapshot", "k8s_get_ingress_snapshot", "k8s_list_events", "k8s_get_pod_logs"] },
       { id: "elasticsearch", tools: ["elasticsearch_get_capabilities", "elasticsearch_cluster_health", "elasticsearch_list_indices", "elasticsearch_list_shards", "elasticsearch_allocation_explain", "elasticsearch_get_mapping", "elasticsearch_field_caps", "elasticsearch_sample_documents", "elasticsearch_search"] },
     ],
   );
