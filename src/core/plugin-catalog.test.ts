@@ -26,6 +26,7 @@ import { initializePluginCatalog } from "./plugin-catalog.js";
 import {
   initializeBuiltinPluginCatalog,
 } from "../plugins/catalog.js";
+import { JAEGER_PLUGIN_DEFINITION } from "../plugins/jaeger/definition.js";
 import { SKYWALKING_PLUGIN_DEFINITION } from "../plugins/skywalking/definition.js";
 import { MYSQL_PLUGIN_DEFINITION } from "../plugins/mysql/definition.js";
 import { PROMETHEUS_PLUGIN_DEFINITION } from "../plugins/prometheus/definition.js";
@@ -152,9 +153,9 @@ test("standalone port resolution uses Definition defaults and honors PORT overri
   assert.equal(resolveStandalonePort(definition, {}), 3199);
   assert.equal(resolveStandalonePort(definition, { PORT: "3200" }), 3200);
   assert.deepEqual(
-    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION, SKYWALKING_PLUGIN_DEFINITION]
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION, SKYWALKING_PLUGIN_DEFINITION, JAEGER_PLUGIN_DEFINITION]
       .map((pluginDefinition) => resolveStandalonePort(pluginDefinition, {})),
-    [3101, 3102, 3103, 3104, 3105, 3106, 3105],
+    [3101, 3102, 3103, 3104, 3105, 3106, 3105, 3107],
   );
 });
 
@@ -170,7 +171,7 @@ test("the test plugin can be replaced through the initialized registry", () => {
 test("the built-in catalog preserves plugin endpoints and status metadata", async (context) => {
   const catalog = initializeBuiltinPluginCatalog(createRuntimeConfigStore());
   assert.deepEqual(
-    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION, SKYWALKING_PLUGIN_DEFINITION]
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION, SKYWALKING_PLUGIN_DEFINITION, JAEGER_PLUGIN_DEFINITION]
       .map(({ metadata, defaultPort }) => ({ id: metadata.id, defaultPort })),
     [
       { id: "ssh", defaultPort: 3101 },
@@ -180,6 +181,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "kubernetes", defaultPort: 3105 },
       { id: "elasticsearch", defaultPort: 3106 },
       { id: "skywalking", defaultPort: 3105 },
+      { id: "jaeger", defaultPort: 3107 },
     ],
   );
   assert.deepEqual(
@@ -192,9 +194,10 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "kubernetes", path: "/kubernetes/mcp" },
       { id: "elasticsearch", path: "/elasticsearch/mcp" },
       { id: "skywalking", path: "/skywalking/mcp" },
+      { id: "jaeger", path: "/jaeger/mcp" },
     ],
   );
-  assert.deepEqual(catalog.configManagers.map(({ pluginId }) => pluginId), ["ssh", "prometheus", "mysql", "jenkins", "kubernetes", "elasticsearch", "skywalking"]);
+  assert.deepEqual(catalog.configManagers.map(({ pluginId }) => pluginId), ["ssh", "prometheus", "mysql", "jenkins", "kubernetes", "elasticsearch", "skywalking", "jaeger"]);
   assert.deepEqual(
     catalog.profiles.map(({ pluginId, profileId }) => ({ pluginId, profileId })),
     [
@@ -205,6 +208,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { pluginId: "kubernetes", profileId: "default" },
       { pluginId: "elasticsearch", profileId: "default" },
       { pluginId: "skywalking", profileId: "default" },
+      { pluginId: "jaeger", profileId: "default" },
     ],
   );
 
@@ -233,6 +237,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
     { id: "kubernetes", path: "/kubernetes/mcp" },
     { id: "elasticsearch", path: "/elasticsearch/mcp" },
     { id: "skywalking", path: "/skywalking/mcp" },
+    { id: "jaeger", path: "/jaeger/mcp" },
   ]);
   assert.deepEqual(body.endpoints.map(({ id, name, category }) => ({ id, name, category: category.id })), [
     { id: "ssh", name: "SSH Remote Operations", category: "remote-operations" },
@@ -242,6 +247,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
     { id: "kubernetes", name: "Kubernetes", category: "operations" },
     { id: "elasticsearch", name: "Elasticsearch 7", category: "operations" },
     { id: "skywalking", name: "SkyWalking APM", category: "observability" },
+    { id: "jaeger", name: "Jaeger Tracing", category: "observability" },
   ]);
   assert.deepEqual(
     catalog.mounts.map(({ plugin }) => ({ id: plugin.id, tools: plugin.tools.map(({ name }) => name) })),
@@ -253,6 +259,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "kubernetes", tools: ["k8s_list_nodes", "k8s_list_pvcs", "k8s_list_resource_quotas", "k8s_list_namespaces", "k8s_list_workloads", "k8s_get_workload_snapshot", "k8s_get_service_snapshot", "k8s_get_ingress_snapshot", "k8s_list_events", "k8s_get_pod_logs"] },
       { id: "elasticsearch", tools: ["elasticsearch_get_capabilities", "elasticsearch_cluster_health", "elasticsearch_list_indices", "elasticsearch_list_shards", "elasticsearch_allocation_explain", "elasticsearch_get_mapping", "elasticsearch_field_caps", "elasticsearch_sample_documents", "elasticsearch_search"] },
       { id: "skywalking", tools: ["skywalking_list_services", "skywalking_list_instances", "skywalking_query_traces", "skywalking_get_trace", "skywalking_query_service_topology"] },
+      { id: "jaeger", tools: ["jaeger_list_services", "jaeger_list_operations", "jaeger_query_traces", "jaeger_get_trace", "jaeger_query_service_topology"] },
     ],
   );
 });

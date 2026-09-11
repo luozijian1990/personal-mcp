@@ -28,7 +28,9 @@
     "dev:elasticsearch": "tsx src/apps/elasticsearch-standalone.ts",
     "start:elasticsearch": "node dist/apps/elasticsearch-standalone.js",
     "dev:skywalking": "tsx src/apps/skywalking-standalone.ts",
-    "start:skywalking": "node dist/apps/skywalking-standalone.js"
+    "start:skywalking": "node dist/apps/skywalking-standalone.js",
+    "dev:jaeger": "tsx src/apps/jaeger-standalone.ts",
+    "start:jaeger": "node dist/apps/jaeger-standalone.js"
   },
   "dependencies": {
     "@kubernetes/client-node": "1.4.0",
