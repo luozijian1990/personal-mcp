@@ -28,6 +28,7 @@ import {
 } from "../plugins/catalog.js";
 import { JAEGER_PLUGIN_DEFINITION } from "../plugins/jaeger/definition.js";
 import { SKYWALKING_PLUGIN_DEFINITION } from "../plugins/skywalking/definition.js";
+import { REDIS_PLUGIN_DEFINITION } from "../plugins/redis/definition.js";
 import { MYSQL_PLUGIN_DEFINITION } from "../plugins/mysql/definition.js";
 import { PROMETHEUS_PLUGIN_DEFINITION } from "../plugins/prometheus/definition.js";
 import { SSH_PLUGIN_DEFINITION } from "../plugins/ssh/definition.js";
@@ -153,9 +154,9 @@ test("standalone port resolution uses Definition defaults and honors PORT overri
   assert.equal(resolveStandalonePort(definition, {}), 3199);
   assert.equal(resolveStandalonePort(definition, { PORT: "3200" }), 3200);
   assert.deepEqual(
-    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION, SKYWALKING_PLUGIN_DEFINITION, JAEGER_PLUGIN_DEFINITION]
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, REDIS_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION, SKYWALKING_PLUGIN_DEFINITION, JAEGER_PLUGIN_DEFINITION]
       .map((pluginDefinition) => resolveStandalonePort(pluginDefinition, {})),
-    [3101, 3102, 3103, 3104, 3105, 3106, 3105, 3107],
+    [3101, 3102, 3103, 3108, 3104, 3105, 3106, 3105, 3107],
   );
 });
 
@@ -171,12 +172,13 @@ test("the test plugin can be replaced through the initialized registry", () => {
 test("the built-in catalog preserves plugin endpoints and status metadata", async (context) => {
   const catalog = initializeBuiltinPluginCatalog(createRuntimeConfigStore());
   assert.deepEqual(
-    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION, SKYWALKING_PLUGIN_DEFINITION, JAEGER_PLUGIN_DEFINITION]
+    [SSH_PLUGIN_DEFINITION, PROMETHEUS_PLUGIN_DEFINITION, MYSQL_PLUGIN_DEFINITION, REDIS_PLUGIN_DEFINITION, JENKINS_PLUGIN_DEFINITION, KUBERNETES_PLUGIN_DEFINITION, ELASTICSEARCH_PLUGIN_DEFINITION, SKYWALKING_PLUGIN_DEFINITION, JAEGER_PLUGIN_DEFINITION]
       .map(({ metadata, defaultPort }) => ({ id: metadata.id, defaultPort })),
     [
       { id: "ssh", defaultPort: 3101 },
       { id: "prometheus", defaultPort: 3102 },
       { id: "mysql", defaultPort: 3103 },
+      { id: "redis", defaultPort: 3108 },
       { id: "jenkins", defaultPort: 3104 },
       { id: "kubernetes", defaultPort: 3105 },
       { id: "elasticsearch", defaultPort: 3106 },
@@ -190,6 +192,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "ssh", path: "/ssh/mcp" },
       { id: "prometheus", path: "/prometheus/mcp" },
       { id: "mysql", path: "/mysql/mcp" },
+      { id: "redis", path: "/redis/mcp" },
       { id: "jenkins", path: "/jenkins/mcp" },
       { id: "kubernetes", path: "/kubernetes/mcp" },
       { id: "elasticsearch", path: "/elasticsearch/mcp" },
@@ -197,13 +200,14 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "jaeger", path: "/jaeger/mcp" },
     ],
   );
-  assert.deepEqual(catalog.configManagers.map(({ pluginId }) => pluginId), ["ssh", "prometheus", "mysql", "jenkins", "kubernetes", "elasticsearch", "skywalking", "jaeger"]);
+  assert.deepEqual(catalog.configManagers.map(({ pluginId }) => pluginId), ["ssh", "prometheus", "mysql", "redis", "jenkins", "kubernetes", "elasticsearch", "skywalking", "jaeger"]);
   assert.deepEqual(
     catalog.profiles.map(({ pluginId, profileId }) => ({ pluginId, profileId })),
     [
       { pluginId: "ssh", profileId: "default" },
       { pluginId: "prometheus", profileId: "default" },
       { pluginId: "mysql", profileId: "default" },
+      { pluginId: "redis", profileId: "default" },
       { pluginId: "jenkins", profileId: "default" },
       { pluginId: "kubernetes", profileId: "default" },
       { pluginId: "elasticsearch", profileId: "default" },
@@ -233,6 +237,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
     { id: "ssh", path: "/ssh/mcp" },
     { id: "prometheus", path: "/prometheus/mcp" },
     { id: "mysql", path: "/mysql/mcp" },
+    { id: "redis", path: "/redis/mcp" },
     { id: "jenkins", path: "/jenkins/mcp" },
     { id: "kubernetes", path: "/kubernetes/mcp" },
     { id: "elasticsearch", path: "/elasticsearch/mcp" },
@@ -243,6 +248,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
     { id: "ssh", name: "SSH Remote Operations", category: "remote-operations" },
     { id: "prometheus", name: "Prometheus Metrics", category: "observability" },
     { id: "mysql", name: "MySQL Database", category: "databases" },
+    { id: "redis", name: "Redis", category: "databases" },
     { id: "jenkins", name: "Jenkins", category: "ci" },
     { id: "kubernetes", name: "Kubernetes", category: "operations" },
     { id: "elasticsearch", name: "Elasticsearch 7", category: "operations" },
@@ -255,6 +261,7 @@ test("the built-in catalog preserves plugin endpoints and status metadata", asyn
       { id: "ssh", tools: ["ssh_get_system_snapshot", "ssh_execute_command"] },
       { id: "prometheus", tools: ["prometheus_query", "prometheus_query_range"] },
       { id: "mysql", tools: ["execute_sql"] },
+      { id: "redis", tools: ["redis_scan_keys", "redis_read_key", "redis_inspect_key", "redis_diagnose", "redis_get_slowlog"] },
       { id: "jenkins", tools: ["jenkins_get_job", "jenkins_get_build", "jenkins_get_console_log"] },
       { id: "kubernetes", tools: ["k8s_list_nodes", "k8s_list_pvcs", "k8s_list_resource_quotas", "k8s_list_namespaces", "k8s_list_workloads", "k8s_get_workload_snapshot", "k8s_get_service_snapshot", "k8s_get_ingress_snapshot", "k8s_list_events", "k8s_get_pod_logs"] },
       { id: "elasticsearch", tools: ["elasticsearch_get_capabilities", "elasticsearch_cluster_health", "elasticsearch_list_indices", "elasticsearch_list_shards", "elasticsearch_allocation_explain", "elasticsearch_get_mapping", "elasticsearch_field_caps", "elasticsearch_sample_documents", "elasticsearch_search"] },

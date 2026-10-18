@@ -18,6 +18,8 @@
     "start": "node dist/apps/gateway.js",
     "start:ssh": "node dist/apps/ssh-standalone.js",
     "start:prometheus": "node dist/apps/prometheus-standalone.js",
+    "dev:redis": "tsx src/apps/redis-standalone.ts",
+    "start:redis": "node dist/apps/redis-standalone.js",
     "dev:mysql": "tsx src/apps/mysql-standalone.ts",
     "start:mysql": "node dist/apps/mysql-standalone.js",
     "test": "node --test dist/core/*.test.js dist/plugins/*/*.test.js dist/ui/*.test.js",

@@ -12,11 +12,13 @@ import { KUBERNETES_PLUGIN_DEFINITION } from "./kubernetes/definition.js";
 import { ELASTICSEARCH_PLUGIN_DEFINITION } from "./elasticsearch/definition.js";
 import { SKYWALKING_PLUGIN_DEFINITION } from "./skywalking/definition.js";
 import { JAEGER_PLUGIN_DEFINITION } from "./jaeger/definition.js";
+import { REDIS_PLUGIN_DEFINITION } from "./redis/definition.js";
 
 export const pluginDefinitions: readonly PersonalMcpPluginDefinition[] = [
   SSH_PLUGIN_DEFINITION,
   PROMETHEUS_PLUGIN_DEFINITION,
   MYSQL_PLUGIN_DEFINITION,
+  REDIS_PLUGIN_DEFINITION,
   JENKINS_PLUGIN_DEFINITION,
   KUBERNETES_PLUGIN_DEFINITION,
   ELASTICSEARCH_PLUGIN_DEFINITION,
