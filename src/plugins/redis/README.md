@@ -81,7 +81,7 @@ Secret 省略或提交空字符串保留旧值，非空替换，`clearSecrets: [
 {"db":0,"key":"orders:123","offset":0,"length":1024}
 ```
 
-String 续查使用 `data.nextOffset`；List/ZSet 也使用 `data.nextOffset`，但单位是项序号；ZSet 按分数升序。Hash/Set 传回 `nextCursor`，offset 必须为 0。key 本身若为二进制，传 `keyEncoding: "base64"` 和规范 Base64 字符串。返回值含 encoding/value/bytes/returnedBytes/truncated，不自动解析 JSON、解压或反序列化。String 分片切断 UTF-8 字符时返回 Base64，调用方按字节重组。
+String 续查使用 `data.nextOffset`；List/ZSet 也使用 `data.nextOffset`，但单位是项序号；ZSet 按分数升序。Hash/Set 传回 `nextCursor`，offset 必须为 0。key 本身若为二进制，传 `keyEncoding: "base64"` 和规范 Base64 字符串。key 输入的编码字符串长度上限为 `max(8192, REDIS_MAX_RESPONSE_BYTES)`（保留原有最小上限；UTF-8 和 Base64 共用此字符数上限），保证当前预算内扫描返回的完整 key 可直接用于读取和检查；仍受 HTTP 请求大小限制。返回值含 encoding/value/bytes/returnedBytes/truncated，不自动解析 JSON、解压或反序列化。String 分片切断 UTF-8 字符时返回 Base64，调用方按字节重组。
 
 ## 分页、资源限制和安全边界
 
@@ -90,7 +90,7 @@ String 续查使用 `data.nextOffset`；List/ZSet 也使用 `data.nextOffset`，
 - 游标绑定 DB/key/type/pattern，实例内有效 5 分钟，最多保存 64 个、总计 8 MiB；内存压力会淘汰最旧游标。重载配置、重启或淘汰后返回明确错误，调用方重新扫描。空页且 `complete=false` 必须续查，不能据此判断不存在。
 - SCAN 不是快照，可能重复；分页过程中 key 过期或数据变化会影响结果。数量是实际本页或瞬时观测值，不冒充全量一致性证据。游标缓存可能包含已过期 key 的先前观测。
 - 每个 RESP 后端响应最多为配置 MCP 响应上限的 4 倍；遇到超大集合项或 SCAN 超量回复会断开并报错，不分配无限内存。插件无法保证 Redis 端计算量；超时仅停止等待和后续请求，不能撤销 Redis 已开始执行的命令。
-- String 从后端读取有界字节范围，达到响应预算后可进一步缩小并返回 nextOffset。Hash/List 的大单值返回有限预览，标记 truncated；需要更多内容时提高配置中的预览上限。字段名、Set/ZSet 成员和 key 保持完整，单项超预算时报错。后端原始单值已经超过协议响应上限时无法预览，直接报错。
+- String 从后端读取有界字节范围，达到响应预算后可进一步缩小并返回 nextOffset；`value.bytes` 始终为本次 GETRANGE 原始返回长度，`returnedBytes` 为裁剪后长度，整个 String 长度见 `totalBytes`。Hash/List 的大单值返回有限预览，标记 truncated；需要更多内容时提高配置中的预览上限。字段名、Set/ZSet 成员和 key 保持完整，单项超预算时报错。后端原始单值已经超过协议响应上限时无法预览，直接报错。
 - 单 key MEMORY USAGE 使用固定采样，返回估算值；没有自动全库内存扫描。INFO 统计为累计计数，不将其解释成当前瞬时命中率或根因。
 - 无自动重连和请求重试；每次调用独立连接，结束/超时/取消时关闭。正常读操作仍可能影响 Redis 访问统计、LRU/LFU 或触发正常的惰性过期。
 - 中央日志 input/output 均为 metadata，不记录 key、业务结果或慢日志正文。服务端错误只保留错误类别，不回显包含参数的 Redis 原始错误文本。
@@ -107,3 +107,5 @@ node --test dist/plugins/redis/redis.test.js
 自动测试覆盖 RESP2 分片和二进制、拒绝写入和危险子命令、配置/Secret 生命周期、分页溢出、部分诊断、日志脱敏、响应大小、超时取消、TLS 信任/主机名校验和独立 HTTP MCP 契约。TLS 测试使用 openssl 临时生成测试证书，结束后清理。
 
 本地 Redis 7.2.1 已通过真实独立 HTTP MCP 验证：五种数据类型、二进制、分页、并发 DB 隔离、TTL/内存、INFO、慢日志隐藏参数和健康探测；仅创建唯一前缀测试数据，前后 DUMP 一致，并已清理。TLS/ACL 权限拒绝使用本地模拟服务/单元测试，未宣称真实 Redis TLS/ACL 环境验证，也未做负载或浏览器 E2E 测试。
+
+2026-10-19 在同一本地 Redis 7.2.1 通过真实 HTTP MCP 回归：超过 8192 字符的 UTF-8/Base64 key 可从 SCAN 结果继续读取和检查；4 KiB 响应预算下，转义文本、二进制与 UTF-8 String 多轮裁剪保持原始字节数，按 nextOffset 重组与原值一致。测试 key 均带唯一前缀和 TTL，调用前后 DUMP 一致，结束后精确清理。

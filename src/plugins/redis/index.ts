@@ -19,7 +19,8 @@ export function createRedisPlugin(options: { config?: RedisConfig } = {}): Perso
   const config = options.config ?? loadRedisConfig();
   const queries = new RedisQueries(config);
   const db = z.number().int().min(0).max(2147483647).default(config.db).describe("Logical DB for this call; results identify it");
-  const key = z.string().max(8192).describe("Exact Redis key, including empty key if needed");
+  // Any encoded key that fits a scan response must also fit the read/inspect input.
+  const key = z.string().max(Math.max(8192, config.maxResponseBytes)).describe("Exact Redis key, including empty key; encoded character limit is max(8192, REDIS_MAX_RESPONSE_BYTES)");
   const validateKey = (args: { key: string; keyEncoding: "utf8" | "base64" }, ctx: z.RefinementCtx) => {
     try { keyBytes(args.key, args.keyEncoding); } catch { ctx.addIssue({ code: "custom", message: "Key must use canonical Base64", path: ["key"] }); }
   };

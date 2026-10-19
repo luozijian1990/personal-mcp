@@ -74,7 +74,13 @@ test("diagnostic permission errors remain unavailable and slowlog arguments defa
 test("response budget includes text and structured mirrors, binary and escaped text", async () => {
   const c = { ...config, maxResponseBytes: 4096 };
   const out = await new RedisQueries(c).read({ query: async args => args[0] === "TYPE" ? b("string") : args[0] === "STRLEN" ? 10000 : b('"'.repeat(10000)) }, 0, b("x"), { offset: 0, length: 10000, limit: 10 });
-  assert.ok(responseSize(out) <= 4096); assert.equal(out.complete, false); assert.ok(Number(out.data.nextOffset) > 0);
+  assert.ok(responseSize(out) <= 4096); assert.equal(out.complete, false);
+  const value = out.data.value as ReturnType<typeof bytes>;
+  assert.equal(value.bytes, 10000);
+  assert.ok(value.returnedBytes < 2500, "exercise multiple budget reductions");
+  assert.equal(value.truncated, true);
+  assert.equal(value.value, '"'.repeat(value.returnedBytes));
+  assert.equal(out.data.nextOffset, value.returnedBytes);
 });
 
 async function mockBackend(context: { after: (fn: () => unknown) => void }, handler: (args: Buffer[]) => Buffer | undefined) {
@@ -99,16 +105,24 @@ test("deadline and cancellation close connections; raw oversized reply fails bef
 });
 test("standalone MCP lists five readonly tools; validates before backend and logs no business content", async context => {
   const commands: string[][] = [];
+  const maxResponseBytes = 65536;
+  const longKeys = [b("a".repeat(9000)), Buffer.alloc(7000, 255)];
   const port = await mockBackend(context, args => {
     const parts = args.map(v => v.toString()); commands.push(parts);
     if (parts[0] === "SELECT") return b("+OK\r\n");
-    if (parts[0] === "TYPE") return wire(b("string"));
+    if (parts[0] === "SCAN") return wire([b("0"), longKeys]);
+    if (parts[0] === "TYPE") {
+      if (args[1]!.length > 1000) assert.ok(longKeys.some(key => key.equals(args[1]!)), "preserve exact key bytes");
+      return wire(b("string"));
+    }
+    if (parts[0] === "PTTL") return wire(-1);
+    if (parts[0] === "MEMORY") return wire(123);
     if (parts[0] === "STRLEN") return wire(14);
     if (parts[0] === "GETRANGE") return wire(b("PRIVATE_MARKER"));
     return b("+PONG\r\n");
   });
   const logs: unknown[] = [];
-  const runtime = await startStandalonePlugin(REDIS_PLUGIN_DEFINITION, { port: 0, store: { environment: () => ({ REDIS_HOST: "127.0.0.1", REDIS_PORT: String(port), MCP_ENABLED_REDIS: "true" }), update: async () => {} }, logger: { info(_e, f) { logs.push(f); }, error(_e, f) { logs.push(f); } } });
+  const runtime = await startStandalonePlugin(REDIS_PLUGIN_DEFINITION, { port: 0, store: { environment: () => ({ REDIS_HOST: "127.0.0.1", REDIS_PORT: String(port), REDIS_MAX_RESPONSE_BYTES: String(maxResponseBytes), MCP_ENABLED_REDIS: "true" }), update: async () => {} }, logger: { info(_e, f) { logs.push(f); }, error(_e, f) { logs.push(f); } } });
   context.after(async () => { runtime.server.closeAllConnections(); await new Promise<void>(r => runtime.server.close(() => r())); });
   async function rpc(method: string, params: object) {
     const response = await fetch(new URL("/redis/mcp", runtime.url), { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
@@ -119,7 +133,20 @@ test("standalone MCP lists five readonly tools; validates before backend and log
   const call = await rpc("tools/call", { name: "redis_read_key", arguments: { db: 2, key: "private-key" } });
   assert.equal(call.result.isError, false); assert.equal(call.result.structuredContent.db, 2);
   assert.ok(commands.some(c => c[0] === "SELECT" && c[1] === "2"));
+  const scanned = await rpc("tools/call", { name: "redis_scan_keys", arguments: {} });
+  assert.equal(scanned.result.isError, false);
+  assert.equal(scanned.result.structuredContent.data.items.length, longKeys.length);
+  for (const [i, item] of scanned.result.structuredContent.data.items.entries()) {
+    assert.deepEqual(Buffer.from(item.value, item.encoding), longKeys[i]);
+    for (const name of ["redis_read_key", "redis_inspect_key"]) {
+      const response = await rpc("tools/call", { name, arguments: { key: item.value, keyEncoding: item.encoding } });
+      assert.equal(response.result.isError, false, `${name} accepts scanned ${item.encoding} key`);
+      assert.equal(response.result.structuredContent.data.exists, true);
+    }
+  }
   const before = commands.length;
+  const oversized = await rpc("tools/call", { name: "redis_read_key", arguments: { key: "a".repeat(maxResponseBytes + 1) } });
+  assert.equal(oversized.result.isError, true); assert.equal(commands.length, before);
   const invalid = await rpc("tools/call", { name: "redis_read_key", arguments: { key: "x", length: 999999 } }); assert.equal(invalid.result.isError, true); assert.equal(commands.length, before);
   const injection = await rpc("tools/call", { name: "redis_read_key", arguments: { key: "x", command: "FLUSHALL" } }); assert.equal(injection.result.isError, true);
   const unknown = await rpc("tools/call", { name: "redis_execute", arguments: { command: "SET x y" } }); assert.ok(unknown.error || unknown.result.isError);

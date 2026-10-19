@@ -111,13 +111,14 @@ export class RedisQueries {
     }
     if (type === "string") {
       const totalBytes = int(await r.query(["STRLEN", key]));
-      let value = bytes(await r.query(["GETRANGE", key, String(o.offset), String(o.offset + o.length - 1)]));
+      const original = await r.query(["GETRANGE", key, String(o.offset), String(o.offset + o.length - 1)]);
+      let value = bytes(original);
       const make = () => {
         const out = result(db, { type, exists: true, totalBytes, offset: o.offset, value, nextOffset: o.offset + value.returnedBytes < totalBytes ? o.offset + value.returnedBytes : null }, o.offset + value.returnedBytes >= totalBytes);
         out.notes.push("String offsets and lengths are bytes; a UTF-8 boundary fragment is returned as Base64.");
         return out;
       };
-      while (responseSize(make()) > this.c.maxResponseBytes && value.returnedBytes > 1) value = bytes(Buffer.from(value.value, value.encoding), Math.floor(value.returnedBytes / 2));
+      while (responseSize(make()) > this.c.maxResponseBytes && value.returnedBytes > 1) value = bytes(original, Math.floor(value.returnedBytes / 2));
       const out = make();
       return enforceResponse(this.c, out);
     }
