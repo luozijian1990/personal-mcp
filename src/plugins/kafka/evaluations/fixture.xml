@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fixed wireHandler fixture in kafka.test.ts. Expected answers are fixture facts,
+     not production observations. This is an evaluation task set, not a claim that
+     an LLM evaluation has been executed. -->
+<evaluation>
+  <qa_pair><question>在固定模拟集群中，查询集群与 orders Topic，orders 分区 0 的 Leader 所在机架是什么？只返回机架名。</question><answer>rack-a</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，列出包含内部 Topic 的列表，再查询普通 Topic 的结构。唯一非内部 Topic 的名称是什么？</question><answer>orders</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，发现消费组，查看成员并查询 Lag。负责 orders 分区 0 的消费者静态实例 ID 是什么？</question><answer>static-1</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，先确认消费组 g 的成员负责哪些分区，再查询对应 Lag。orders 分区 0 的提交位点差值是多少？只返回十进制整数。</question><answer>10</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，发现 orders 的消费组并查询分区位点。分区 0 已提交位点是多少？要求保留完整整数精度。</question><answer>9007199254740993</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，查询 Topic 配置与消费组成员，确认消费组 g 订阅的 orders Topic 的 retention.ms 是多少？只返回毫秒数。</question><answer>604800000</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，发现普通 Topic，检查其副本结构与集群 Broker。orders 分区 0 的 ISR 数量是多少？</question><answer>1</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，从消费组列表找到负责 orders 的组，并检查其成员分配。当前分配策略名称是什么？</question><answer>range</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，对照集群 Broker 和消费组 g 的详情。g 的 Coordinator node ID 是多少？</question><answer>1</answer></qa_pair>
+  <qa_pair><question>在固定模拟集群中，先查 Topic 配置，再查消费组 g 的 Lag。orders 的 retention.ms 来自哪个配置来源？仅返回 source 字段。</question><answer>DEFAULT_CONFIG</answer></qa_pair>
+</evaluation>

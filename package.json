@@ -32,7 +32,9 @@
     "dev:skywalking": "tsx src/apps/skywalking-standalone.ts",
     "start:skywalking": "node dist/apps/skywalking-standalone.js",
     "dev:jaeger": "tsx src/apps/jaeger-standalone.ts",
-    "start:jaeger": "node dist/apps/jaeger-standalone.js"
+    "start:jaeger": "node dist/apps/jaeger-standalone.js",
+    "dev:kafka": "tsx src/apps/kafka-standalone.ts",
+    "start:kafka": "node dist/apps/kafka-standalone.js"
   },
   "dependencies": {
     "@kubernetes/client-node": "1.4.0",
@@ -42,6 +44,7 @@
     "@primer/octicons-react": "19.33.0",
     "@primer/react": "38.37.0",
     "express": "5.2.1",
+    "kafkajs": "2.2.4",
     "mysql2": "^3.14.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

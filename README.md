@@ -84,6 +84,8 @@ cp .runtime-config.example.json .runtime-config.json
 > [!TIP]
 > 当前 Plugin、配置字段和能力以 Web 控制台为准；各 Plugin 的完整示例与安全边界见 [`src/plugins/`](src/plugins/) 下的独立 README。
 
+Kafka 的六项只读查询、连接配置与验证边界见 [Kafka MCP](src/plugins/kafka/README.md)。Gateway endpoint 为 `/kafka/mcp`，也可通过 `npm run dev:kafka` 独立启动（默认端口 3109）。
+
 ## 客户端接入
 
 网关启动后，可将任意 endpoint 添加到 MCP 客户端：
