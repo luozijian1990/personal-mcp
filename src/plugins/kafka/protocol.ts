@@ -39,7 +39,7 @@ export interface ProtocolRequest {
   response: { decode: (buffer: Buffer) => Promise<unknown>; parse: (data: unknown) => Promise<unknown> };
 }
 interface ProtocolFactory { versions: string[]; protocol: (options: { version: number }) => (args: object) => ProtocolRequest }
-export const READ_APIS = { Metadata: 3, ListOffsets: 2, OffsetFetch: 9, FindCoordinator: 10, DescribeGroups: 15, ListGroups: 16, DescribeConfigs: 32 } as const;
+export const READ_APIS = { Metadata: 3, ListOffsets: 2, OffsetFetch: 9, FindCoordinator: 10, DescribeGroups: 15, ListGroups: 16, DescribeConfigs: 32, DescribeLogDirs: 35, DescribeClientQuotas: 48, ListPartitionReassignments: 46, DescribeQuorum: 55 } as const;
 export type ReadApi = keyof typeof READ_APIS;
 export function assertReadApi(name: string): asserts name is ReadApi {
   if (!Object.hasOwn(READ_APIS, name)) throw new QueryError("READ_ONLY_VIOLATION", "Kafka operation is outside the read-only allowlist");
@@ -58,7 +58,7 @@ export class Reader {
   string() { return this.bytes(this.i16()).toString("utf8"); }
   nullableString() { const n = this.i16(); return n === -1 ? null : this.bytes(n).toString("utf8"); }
   compact() { return this.bytes(this.uvar() - 1).toString("utf8"); }
-  count(n: number) { if (n < 0 || n > this.buffer.length) throw new QueryError("INVALID_RESPONSE", "Malformed Kafka array"); return n; }
+  count(n: number) { if (n < 0 || n > this.buffer.length - this.offset) throw new QueryError("INVALID_RESPONSE", "Malformed Kafka array"); return n; }
   tags() { const n = this.count(this.uvar()); for (let i = 0; i < n; i++) { this.uvar(); this.bytes(this.uvar()); } }
   done() { if (this.offset !== this.buffer.length) throw new QueryError("INVALID_RESPONSE", "Unexpected trailing Kafka payload"); }
 }

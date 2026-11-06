@@ -3,7 +3,7 @@
 
 # Kafka MCP
 
-只读查询集群、Topic、传统消费组及分区 Lag，为定向排障提供快照证据。
+提供 11 个只读工具，查询集群、Topic、消费组、Lag，并检查配置、存储、配额、重分配与元数据 quorum。
 
 [返回项目首页](../../../README.md)
 </div>
@@ -14,9 +14,9 @@
 
 支持 PLAINTEXT、TLS（证书链及主机名校验）、自定义 CA、SASL/PLAIN、SCRAM-SHA-256、SCRAM-SHA-512。不支持双向 TLS、Kerberos、OAuth。发现的新 `consumer` / `share` / `streams` 组类型返回不支持，不套用 classic Lag。Broker 的 `advertised.listeners` 和 Coordinator 地址必须从 MCP 进程可达。
 
-**已完成本地/模拟测试，以及用户提供的无认证集群实测。** 三个 Broker 连接、Topic 列表/结构/配置、消费组空列表及不存在对象错误已验证；后续生产代理实测已覆盖两个活跃消费组的成员分配、正常 Lag、指定分区查询和部分失败结果。不能把这一次实测称为全部目标版本已验证，详见验证记录。
+**第一阶段六工具已完成本地/模拟测试及用户集群实测；第二阶段新增五工具已完成本地/模拟验证，并于 2026-11-06 在测试集群及生产代理环境验证配置审计、存储、空配额和空重分配；quorum 正确返回 unsupported，KRaft 正向实测仍待补充。** 三个 Broker 连接、Topic 列表/结构/配置、消费组空列表及不存在对象错误已验证；后续生产代理实测已覆盖两个活跃消费组的成员分配、正常 Lag、指定分区查询和部分失败结果。不能把这一次实测称为全部目标版本已验证，详见验证记录。
 
-适配使用固定版本 `kafkajs@2.2.4` 的 Broker/ConnectionPool 和只读协议编码器，内部依赖限定在 `client.ts`、`protocol.ts`。没有使用会丢掉 rack/internal/分区错误的高层 Admin 封装，也不调用具有写入分支的 `fetchOffsets(resolveOffsets=true)`。补充了 ListGroups v4/v5 和 DescribeGroups v4 编解码以返回状态、类型与静态成员 ID。升级依赖时必须执行协议回归测试，不允许直接放宽版本号。
+适配使用固定版本 `kafkajs@2.2.4` 的 Broker/ConnectionPool 和只读协议编码器，内部依赖限定在 `client.ts`、`protocol.ts`、`admin-protocol.ts`。没有使用会丢掉 rack/internal/分区错误的高层 Admin 封装，也不调用具有写入分支的 `fetchOffsets(resolveOffsets=true)`。补充了 ListGroups v4/v5 和 DescribeGroups v4 编解码以返回状态、类型与静态成员 ID。升级依赖时必须执行协议回归测试，不允许直接放宽版本号。
 
 ## 启动与接入
 
@@ -109,6 +109,8 @@ Topic 默认配置：`retention.ms`、`retention.bytes`、`cleanup.policy`、`mi
 | `KAFKA_SASL_MECHANISM` | none | none/plain/scram-sha-256/scram-sha-512 |
 | `KAFKA_USERNAME` | 空 | SASL 必填 |
 | `KAFKA_PASSWORD` | 空 | SASL 必填 Secret；不写入日志或公开配置快照 |
+| `KAFKA_AUDIT_BASELINE` | `{}` | 服务端 JSON 业务基线；默认仅启用证据规则，不允许调用参数覆盖 |
+| `KAFKA_STORAGE_IMBALANCE_RATIO` | 0 | 0 禁用告警；或大于 1、至多 1000 的最大/平均当前副本字节比阈值 |
 | `KAFKA_TIMEOUT_MS` | 10000 | 1–30000；整次调用共用时间预算，含连接、认证、查询 |
 | `KAFKA_MAX_ITEMS` | 1000 | 1–1000；列表默认 min(100, 此值) |
 | `KAFKA_MAX_PARTITIONS` | 1000 | 1–10000；超限必须缩小范围，不自动采样 |
@@ -120,7 +122,7 @@ Topic 默认配置：`retention.ms`、`retention.bytes`、`cleanup.policy`、`mi
 
 ## 只读与 ACL
 
-固定协议 allowlist：Metadata、ListOffsets、OffsetFetch、FindCoordinator、DescribeGroups、ListGroups、DescribeConfigs，另有连接所需的 ApiVersions、SaslHandshake、SaslAuthenticate。Metadata 强制 `allowAutoTopicCreation=false`。工具风险 metadata 和 annotations 均标记只读；底层没有通用操作透传。
+固定协议 allowlist：Metadata、ListOffsets、OffsetFetch、FindCoordinator、DescribeGroups、ListGroups、DescribeConfigs、DescribeLogDirs、DescribeClientQuotas、ListPartitionReassignments、DescribeQuorum，另有连接所需的 ApiVersions、SaslHandshake、SaslAuthenticate。Metadata 强制 `allowAutoTopicCreation=false`。工具风险 metadata 和 annotations 均标记只读；底层没有通用操作透传。
 
 使用专用账号，由 Kafka ACL 负责可见范围，不额外维护插件白名单。按目标版本配置 Topic/Group 的 Describe、Topic 的 DescribeConfigs 等必要权限。ListGroups 可由 Cluster Describe 或逐组权限提供可见列表，不必为了列出组就授予全局访问。不要用广泛的 Group Read 权限代替 Describe（Read 也参与消费组加入、提交位点等操作的授权）。新版 Broker 为辨认组类型，会在其 Coordinator 查询 ListGroups；组不可见时明确无法验证类型。
 
@@ -131,7 +133,7 @@ Topic 默认配置：`retention.ms`、`retention.bytes`、`cleanup.policy`、`mi
 ```bash
 npm run check
 # 定向验证（先构建）
-node --test dist/plugins/kafka/kafka.test.js
+node --test dist/plugins/kafka/*.test.js
 ```
 
 测试使用本地模拟 TCP/TLS Broker 及 HTTP MCP；需要允许 loopback 监听。覆盖配置与 Secret 生命周期、六工具契约、严格参数校验、只读请求、精确对象匹配、64 位位点、异常/缺失位点、部分失败、查询上限、帧/响应预算、取消和 TLS 信任/主机名、SASL 握手。无认证真实集群的验证范围见下方记录；实际 ACL 拒绝行为和多版本兼容矩阵仍待验证。
@@ -141,3 +143,72 @@ node --test dist/plugins/kafka/kafka.test.js
 固定模拟数据的十条多工具评估题见 [fixture.xml](evaluations/fixture.xml)，答案来自测试 fixture，不代表已运行模型评估或生产事实。协议扩展参考 Apache Kafka 的 [ListGroups](https://github.com/apache/kafka/blob/3.9/clients/src/main/resources/common/message/ListGroupsResponse.json)、[DescribeGroups](https://github.com/apache/kafka/blob/3.9/clients/src/main/resources/common/message/DescribeGroupsResponse.json) 和 [ConsumerProtocolAssignment](https://github.com/apache/kafka/blob/3.9/clients/src/main/resources/common/message/ConsumerProtocolAssignment.json) 定义。
 
 本次验证结果与真实集群待验项见 [验证记录](VALIDATION.md)。
+
+
+## 第二阶段：运维查询
+
+五个工具始终注册，不因连接失败或接口不可用而从工具列表消失。默认显式指定对象；只有 `all=true` 才请求完整可见范围，不能与范围过滤混用（存储允许同时指定 topics 和 brokerIds）。
+
+| 工具 | 参数 | 结果与边界 |
+| --- | --- | --- |
+| `kafka_audit_config` | `topics` 或 `all=true`；`includeInternal=false`、`includeBrokerConfigs=false` | 有效配置、来源编号、基线、逐条规则证据、建议方向。不开启 Broker 配置时标记证据不足，不生成变更命令 |
+| `kafka_inspect_storage` | `topics` / `brokerIds` 或 `all=true` | 日志目录、目录错误、副本大小和 offsetLag；当前/未来副本分别统计，容量可为空 |
+| `kafka_describe_quotas` | `components` 或 `all=true`；`strict=false`、`includeDefaults=true` | 配额实体、默认实体候选及配置值；不计算最终有效配额，不读取实际限流指标 |
+| `kafka_list_reassignments` | `topics` 或 `all=true` | 当前、增加、移除副本列表；无历史、进度百分比或卡住判断 |
+| `kafka_describe_quorum` | `{}` | 经 Broker 查询 `__cluster_metadata:0`，返回 Leader、epoch、高水位、voters/observers 和可获得的时间戳 |
+
+### 状态与范围
+
+新增工具的结构化结果带 `status`：`available`、`partial`、`unsupported`、`not_applicable`、`forbidden`、`failed`。`data` 在完全不可用时为 null；`forbidden`/`failed` 同时标记 MCP `isError=true`。部分成功保留证据与作用域错误。`complete` 只表示查询范围完整，不代表配置通过全部规则或集群健康。
+
+`not_applicable` 仅用于有明确证据的“不适用”；当前 quorum 查询不会把 API 缺失、版本不支持、权限拒绝或失败推断成 ZooKeeper 模式。因此这些情况下返回真实的 unsupported/forbidden/failed，不假造 not_applicable。
+
+沿用默认 10 秒/最大 30 秒总预算及默认并发 5。审计/存储/重分配在元数据阶段检查 `KAFKA_MAX_ITEMS` 与 `KAFKA_MAX_PARTITIONS`；存储还按目标副本数量检查分区预算。结果集合超限时明确失败，不采样。元数据发现及无过滤配额没有后端分页，仍受帧字节限制；按 Broker 选存储范围时，元数据预检仍可能读取全部可见 Topic，但数量上限在投影到所选 Broker 后计算；原始响应仍受帧预算约束。实际返回的副本/目录累计超限后停止调度后续 Broker，已经发出的并发请求仍受同一总期限约束。查询完成前超时会保留已经获得的证据。
+
+### 审计基线
+
+`KAFKA_AUDIT_BASELINE` 支持以下可选字段；数字必须为正的安全整数，未知字段拒绝：
+
+```json
+{
+  "minReplicationFactor": 3,
+  "minMinIsr": 2,
+  "maxRetentionMs": 604800000,
+  "maxRetentionBytes": 1073741824,
+  "maxMessageBytes": 1048576,
+  "allowInfiniteRetention": false,
+  "cleanupPolicies": ["delete", "compact", "compact,delete"]
+}
+```
+
+这是可选示例，**默认值为 `{}`，不预设生产标准**。`min.insync.replicas` 大于副本数、当前 ISR 不足、离线副本等规则基于明确证据；单副本、无限保留维度、Topic 配置覆盖首先作为事实展示。配置冲突、运行风险、基线偏离、普通观察分别标记。有效配置缺失时返回 insufficient_evidence，不当作通过。
+
+全量审计默认排除内部 Topic；若显式 topics 包含内部 Topic 却未开启 includeInternal，会返回 INTERNAL_TOPIC_EXCLUDED 并标记不完整，不能当成审计通过。显式 includeInternal 后检查其结构风险，但不对内部 Topic 套用业务保留/清理/副本基线。不开启 Broker 配置时不会声称已验证节点间一致性。开启后只读取相关 Broker 的必要配置，展示差异及消息大小/复制抓取大小的关系，不将差异或首批次例外简单判成错误。客户端 acks、发送/接收配置仍不可见，不宣称端到端兼容。
+
+### 存储比较
+
+全量统计计入内部 Topic，显式 topics 查询则只统计所选 Topic。`currentBytes` 和 `futureBytes` 是日志副本字节，不等于主机磁盘使用量或远程分层存储。`offsetLag` 是副本日志的协议位点差，不是消费组 Lag。容量未知用 null；同一卷可能有多个目录，工具不累加卷容量。
+
+默认显示副本数量、大小、观测数据占比和最大/平均比，不告警。配置阈值后，仅在至少两个选定 Broker、完整查询、非零当前副本数据时做判断，比较仅针对选定范围、不按磁盘容量归一化；阈值判断使用精确十进制交叉相乘，不依赖展示比例的舍入。一个 Broker/目录失败、未知大小或元数据里的副本未返回，都会抑制整体判断。迁移中的 future 副本不计入当前分布的分子分母。
+
+### 配额和 quorum
+
+配额组件的 entityType 为 user 或 client-id；match 为 exact/default/any。只有 exact 必须提供 name，default 以协议 null 表示默认实体，不把字符串 `<default>` 当成默认值。includeDefaults 会补查默认 user/client-id 以及相关单实体/组合候选；这不是请求身份的最终配额优先级解析。all=true 要求 strict=false。实际 throttle、延迟、吞吐交给 Prometheus 等监控工具。
+
+quorum 仅使用现有 Broker 连接与代理映射，不追连独立 Controller 端点。位点、时间戳为十进制字符串；未知的 -1 转成 null，时间单位为 Unix 毫秒。显示相对 Leader 的日志位点差，不单凭单次快照断言多数节点存活、稳定健康或根因。
+
+新增协议版本：DescribeLogDirs v1–v4（v4 才有卷容量）、DescribeClientQuotas v0/v1、ListPartitionReassignments v0、DescribeQuorum v0/v1。协商版本交集为空时明确 unsupported；新版本服务端兼容旧协议不等于所有发行版都已实测。quorum v2 的目录 UUID/Controller listener 不在本阶段返回范围。
+
+```json
+{"name":"kafka_audit_config","arguments":{"topics":["orders"]}}
+{"name":"kafka_audit_config","arguments":{"all":true,"includeInternal":true,"includeBrokerConfigs":true}}
+{"name":"kafka_inspect_storage","arguments":{"brokerIds":[1,2],"topics":["orders"]}}
+{"name":"kafka_inspect_storage","arguments":{"all":true}}
+{"name":"kafka_describe_quotas","arguments":{"components":[{"entityType":"user","match":"exact","name":"reader"}]}}
+{"name":"kafka_describe_quotas","arguments":{"components":[{"entityType":"client-id","match":"default"}],"strict":true}}
+{"name":"kafka_describe_quotas","arguments":{"all":true}}
+{"name":"kafka_list_reassignments","arguments":{"topics":["orders"]}}
+{"name":"kafka_describe_quorum","arguments":{}}
+```
+
+新增查询可能需要更高的 Describe/DescribeConfigs 权限（按目标 Kafka 版本 ACL 对照配置）。不自动扩大账号权限；代理支持不意味着 Broker 的全部管理查询都获授权。源码级协议参考 Apache Kafka 的 [DescribeLogDirs](https://github.com/apache/kafka/blob/trunk/clients/src/main/resources/common/message/DescribeLogDirsResponse.json)、[DescribeClientQuotas](https://github.com/apache/kafka/blob/trunk/clients/src/main/resources/common/message/DescribeClientQuotasResponse.json)、[DescribeQuorum](https://github.com/apache/kafka/blob/3.9/clients/src/main/resources/common/message/DescribeQuorumResponse.json)。

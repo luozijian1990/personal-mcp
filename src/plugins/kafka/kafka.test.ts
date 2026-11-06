@@ -188,7 +188,7 @@ function wireHandler(r: WireRequest, port: number): Buffer {
   throw new Error(`Unexpected non-read request ${r.api}`);
 }
 
-test("real socket adapter and HTTP MCP expose exactly six readonly tools with correct wire evidence", async context => {
+test("real socket adapter and HTTP MCP expose exactly eleven readonly tools with correct wire evidence", async context => {
   const backend = await mockBroker(context, wireHandler); const logs: unknown[] = [];
   const runtime = await startStandalonePlugin(KAFKA_PLUGIN_DEFINITION, { port: 0, store: { environment: () => ({ KAFKA_BROKERS: `127.0.0.1:${backend.port}`, MCP_ENABLED_KAFKA: "true" }), update: async () => {} }, logger: { info(_e, f) { logs.push(f); }, error(_e, f) { logs.push(f); } } });
   context.after(async () => { runtime.server.closeAllConnections(); await new Promise<void>(resolve => runtime.server.close(() => resolve())); });
@@ -196,7 +196,7 @@ test("real socket adapter and HTTP MCP expose exactly six readonly tools with co
     const response = await fetch(new URL("/kafka/mcp", runtime.url), { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
     const t = await response.text(); return JSON.parse(t.startsWith("{") ? t : t.split("\n").find(l => l.startsWith("data: "))!.slice(6));
   }
-  const list = await rpc("tools/list", {}); assert.equal(list.result.tools.length, 6);
+  const list = await rpc("tools/list", {}); assert.equal(list.result.tools.length, 11);
   assert.ok(list.result.tools.every((t: { annotations: { readOnlyHint: boolean }; outputSchema: unknown }) => t.annotations.readOnlyHint && t.outputSchema));
   for (const [name, args] of [["kafka_cluster_overview", {}], ["kafka_list_topics", { includeInternal: true }], ["kafka_describe_topic", { topic: "orders" }], ["kafka_list_groups", {}], ["kafka_describe_group", { groupId: "g" }], ["kafka_get_lag", { groupId: "g" }]] as const) {
     const result = (await rpc("tools/call", { name, arguments: args })).result;

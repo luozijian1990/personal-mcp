@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Offline admin.test.ts fixtures only. Task set, not an executed LLM evaluation or real-cluster observation. -->
+<evaluation>
+  <qa_pair><question>对固定 HTTP 模拟集群审计 orders 并查看存储。该 Topic 的副本大小是多少字节？保持完整整数精度。</question><answer>9007199254740993</answer></qa_pair>
+  <qa_pair><question>对固定 HTTP 模拟集群查询存储和重分配，orders 分区 0 正在增加哪个 Broker？仅返回 ID。</question><answer>2</answer></qa_pair>
+  <qa_pair><question>对固定 HTTP 模拟集群查询存储和重分配，orders 分区 0 正在移除哪个 Broker？仅返回 ID。</question><answer>1</answer></qa_pair>
+  <qa_pair><question>对固定 HTTP 模拟集群查询 quorum 并核对其节点，当前 Leader ID 是多少？</question><answer>1</answer></qa_pair>
+  <qa_pair><question>对固定 HTTP 模拟集群查询 quorum，比较两个 voter 的位点，节点 2 落后 Leader 多少 offset？</question><answer>2</answer></qa_pair>
+  <qa_pair><question>对固定 HTTP 模拟集群查询默认用户配额，再检查是否已解析最终生效规则。默认 producer_byte_rate 的单位是什么？</question><answer>bytes_per_second</answer></qa_pair>
+  <qa_pair><question>对固定 HTTP 模拟集群查询默认用户配额，默认 producer_byte_rate 的配置值是多少？</question><answer>1048576</answer></qa_pair>
+  <qa_pair><question>在固定 HTTP 模拟集群中同时审计 orders 与 Broker 配置，单副本事实在没有业务基线时属于哪种 severity？</question><answer>info</answer></qa_pair>
+  <qa_pair><question>对固定 HTTP 模拟集群查询日志目录，返回的卷总容量是多少字节？不要累加不同目录的容量。</question><answer>18014398509481986</answer></qa_pair>
+  <qa_pair><question>对固定 HTTP 模拟集群查询重分配和 quorum。这些快照是否提供重分配完成百分比？返回 progressAvailable 的布尔值。</question><answer>false</answer></qa_pair>
+</evaluation>

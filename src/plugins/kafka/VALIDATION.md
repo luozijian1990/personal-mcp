@@ -77,3 +77,83 @@ FindCoordinator 调用把协议工厂参数误写为 `coordinatorKey`，而 Kafk
 仍未覆盖：所有 Kafka 发行版本、真实 SASL/TLS 集群、ACL 拒绝、真实事务写入边界；这些不能从本次无认证代理测试推断。
 
 代理映射完成后再次运行 `npm run check`：退出码 0，全仓 153/153 通过，Kafka 专项 15/15 通过。
+
+
+## 第二阶段本地开发与验证
+
+新增 5 个工具，总计 11 个。用户明确测试/生产集群当前不可达，本阶段没有尝试连接这两个环境，也没有重跑 `.scratch` 中的真实集群脚本。
+
+本地测试覆盖：
+
+- DescribeLogDirs v1–v4、DescribeClientQuotas v0/v1、ListPartitionReassignments v0、DescribeQuorum v0/v1 的编解码、请求字段与版本协商。
+- 64 位副本大小、卷容量、quorum 位点和未知时间戳；截断报文、非法数组长度、非有限配额值、尾部多余数据拒绝。
+- 五工具通过真实本地 HTTP MCP 与 TCP 模拟 Broker 调用；11 工具注册、只读 metadata、严格参数和禁止调用时覆盖基线。
+- 服务端基线与存储阈值解析、持久化和无效更新保留原配置；内部 Topic 不应用业务基线。
+- 配置冲突/运行风险/基线/观察分别返回；配置查询超时后保留 Topic 元数据证据。
+- 存储当前/未来副本分别统计；任一 Broker/目录失败、未知或缺失副本、元数据分区错误、重复当前副本均抑制整体判断。
+- 配额默认实体与候选补查，不将空结果解释为无限制；重分配合法空结果与失败区分。
+- unsupported、forbidden、failed、partial 状态及 MCP isError 行为；不根据 API 失败推断 ZooKeeper。
+
+### 真实环境待验清单
+
+| 工具 | 待验证 |
+| --- | --- |
+| kafka_audit_config | 实际 Topic/Broker 配置来源、权限不足、内部 Topic、已配置业务基线 |
+| kafka_inspect_storage | 各 Broker 目录及副本大小、目录错误、代理映射、容量字段的版本可用性 |
+| kafka_describe_quotas | 实际用户/client ID/default 配额实体及权限，不修改配额 |
+| kafka_list_reassignments | 合法空状态或现有迁移状态；不会人为发起迁移 |
+| kafka_describe_quorum | 可用 KRaft 环境经 Broker 查询；不为测试修改模式或开放 Controller 入口 |
+
+等用户通知环境恢复后，再进行现有资源的只读验收。本地模拟通过不代表第二阶段真实集群、KRaft 或所有版本兼容性已通过。第二阶段固定评估题见 `evaluations/phase2-fixture.xml`，未执行独立模型评估。
+
+第二阶段最终 `npm run check`：退出码 0，构建通过，全仓 **165/165**、Kafka **27/27** 测试通过。
+
+## 第二阶段自审后的验证
+
+自审确认并修复 6 项 P2 问题，详见 [REVIEW.md](REVIEW.md)。六条新增回归用例均先复现失败，再验证修复。最终 `npm run check` 退出码 0，全仓 **171/171**、Kafka **33/33** 测试通过。
+本轮没有连接测试/生产集群，没有新增真实环境验收结论。
+
+
+## 第二阶段测试集群实测（2026-11-06）
+
+用户通知可连接测试环境后，于 2026-11-06 09:31（Asia/Singapore）通过临时本地 HTTP MCP 服务执行 12 次只读调用。本轮未访问生产环境，未修改持久化配置或 Kafka 数据。
+
+| 检查 | 结果 |
+| --- | --- |
+| 工具注册/连接 | 11 工具注册，测试集群元数据成功 |
+| Topic/消费组 | 8 个可见 Topic、0 个可见消费组 |
+| 配置审计 | 单 Topic 加相关 Broker 配置、全量 7 个非内部 Topic 均 available/complete；单副本仅作为 info，未误报为违反未配置基线 |
+| Broker 配置证据 | 代表 Topic 的相关 Broker 返回 7 项配置 |
+| 存储分布 | 单 Topic 及全量均 available/complete；3 Broker、3 目录、57 个当前副本（包含内部 Topic），无目录错误或未来副本 |
+| 存储容量 | totalBytes/usableBytes 为 null，保留未知而非填零；未配置不均衡阈值，因此不告警 |
+| 配额 | 全量及默认用户候选查询均 available/complete，entries 为空；不推断“无限制” |
+| 重分配 | 指定 Topic 及全量查询均 available/complete，当前无正在重分配的分区 |
+| quorum | API 55 无受支持版本，正确返回 unsupported、complete=false、data=null；不推断部署模式或 quorum 健康 |
+
+本轮未发现新的实现缺陷，不需要代码修复。上述空配额/空迁移结果验证了合法空状态，尚未在此环境验证非空配额或实际迁移的实时数据；quorum 正向实测仍需要提供支持相应 API 的 KRaft 集群。权限拒绝、全版本兼容性仍不由此次无认证环境证明。
+
+原始响应：Git 忽略目录 `.scratch/kafka-phase2/test-live-result.json`。本轮构建 `npm run build:server` 通过；没有改变实现代码，未重复运行此前已通过的 171 项本地回归。
+
+
+## 第二阶段生产代理只读实测（2026-11-06）
+
+用户明确授权后，于 2026-11-06 09:33（Asia/Singapore）经现有三端口代理、临时 HTTP MCP 服务执行 12 次只读调用。未修改 Kafka/代理配置、未读取消息正文、未加入消费组或提交位点，未改持久化连接配置。
+
+| 项目 | 结果 |
+| --- | --- |
+| 连通与发现 | 同一生产集群、39 可见 Topic、2 个 Stable 消费组 |
+| 配置审计 | 代表 Topic + Broker 配置、全量 38 个业务 Topic + 3 个相关 Broker 配置均 available/complete，无查询错误 |
+| 审计发现 | 25 个业务 Topic、75 个分区为单副本；38 Topic 的 retention.bytes=-1 但 retention.ms=86400000，不能解释为无限保留 |
+| Broker 配置关系 | 三 Broker 均为 message.max.bytes=104857600、replica.fetch.max.bytes=1048576；仅记录观察，不推断复制失败 |
+| 存储查询 | 代表 Topic、全量均 available/complete；3 个 Broker、3 个目录、237 个当前副本（各 79），无目录错误/未来副本 |
+| 当前副本字节分布 | Broker 1: 109050000603；Broker 2: 270088403147；Broker 3: 106605184484。占比约 22.45% / 55.60% / 21.95%，最大/平均比约 1.6681 |
+| 存储判断 | 阈值未配置，comparison.status=not_configured；不将字节占比当成磁盘容量使用率、压力或故障 |
+| 配额 | 全量和默认用户候选查询正常，当前 entries=[]；不推断无限制 |
+| 重分配 | 代表 Topic 和全量查询正常，当前 partitions=[] |
+| quorum | API 55 无受支持版本，返回 unsupported/complete=false/data=null；正向 KRaft 仍未验证 |
+
+全部业务基线保持默认空值；审计没有 error/warning 评级，但这不代表已满足业务可靠性标准。卷总容量/剩余容量字段仍不可用，返回 null。
+
+本轮未发现新的实现缺陷。`npm run build:server` 通过；未改实现代码，没有重复运行此前通过的 171 项本地回归。原始响应在 Git 忽略目录 `.scratch/kafka-phase2/production-live-result.json`，不把生产资源清单和连接配置写入源码/fixture。
+
+第二阶段在测试与生产代理环境的可用查询路径均已验证；仍未覆盖非空配额、进行中的真实重分配、KRaft quorum 正向、真实权限拒绝及所有发行版本。不会为补齐这些场景主动修改生产环境。

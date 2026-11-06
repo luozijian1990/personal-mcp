@@ -1,3 +1,4 @@
+import { ADMIN_APIS, adminRequest, type AdminApi } from "./admin-protocol.js";
 import net from "node:net";
 import tls from "node:tls";
 import { createRequire } from "node:module";
@@ -116,7 +117,8 @@ export function createKafkaReader(config: KafkaConfig, signal?: AbortSignal): Ka
       const broker = await getBroker(address);
       let request: ProtocolRequest;
       const max = broker.versions[16]?.maxVersion ?? 0;
-      if (api === "ListGroups" && max >= 4) request = flexibleListGroups(max >= 5 ? 5 : 4);
+      if (Object.hasOwn(ADMIN_APIS, api)) request = adminRequest(api as AdminApi, broker.versions, args);
+      else if (api === "ListGroups" && max >= 4) request = flexibleListGroups(max >= 5 ? 5 : 4);
       else if (api === "DescribeGroups" && (broker.versions[15]?.maxVersion ?? 0) >= 4) request = describeGroupsV4((args as { groupIds: string[] }).groupIds);
       else {
         const factory = api === "FindCoordinator" ? (factories as unknown as Record<string, unknown>).GroupCoordinator : factories[api];
